@@ -5,14 +5,32 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.message import Message
+from app.schemas.call import CallAccept, CallEnd, CallIceCandidate, CallInvite, CallReject
 from app.schemas.message import MessageCreate
-from app.services.chat_service import get_chat_for_member, list_chat_member_ids
+from app.services.call_service import (
+    accept_call,
+    end_call,
+    get_other_call_member_ids,
+    invite_call,
+    reject_call,
+    serialize_call,
+)
+from app.services.chat_service import (
+    count_chat_unread_messages,
+    get_chat_for_member,
+    list_chat_member_ids,
+)
 from app.services.message_service import (
     create_message,
     edit_own_message,
     mark_message_read,
     serialize_message,
     soft_delete_own_message,
+)
+from app.services.notification_service import (
+    create_message_notifications,
+    create_missed_call_notification,
+    serialize_notification,
 )
 from app.websocket import events
 from app.websocket.manager import manager
@@ -47,6 +65,28 @@ async def handle_ws_event(user_id: UUID, frame: dict, db: AsyncSession) -> None:
                     "request_id": request_id,
                 },
             )
+            notifications = await create_message_notifications(db, message)
+            for notification in notifications:
+                await manager.send_to_user(
+                    notification.user_id,
+                    {
+                        "type": events.NOTIFICATION_NEW,
+                        "payload": serialize_notification(notification),
+                        "request_id": request_id,
+                    },
+                )
+                unread_count = await count_chat_unread_messages(db, message.chat_id, notification.user_id)
+                await manager.send_to_user(
+                    notification.user_id,
+                    {
+                        "type": events.CHAT_UNREAD,
+                        "payload": {
+                            "chat_id": str(message.chat_id),
+                            "unread_count": unread_count,
+                        },
+                        "request_id": request_id,
+                    },
+                )
             return
 
         if event_type == events.MESSAGE_EDIT:
@@ -106,6 +146,18 @@ async def handle_ws_event(user_id: UUID, frame: dict, db: AsyncSession) -> None:
                 },
                 exclude=user_id,
             )
+            unread_count = await count_chat_unread_messages(db, message.chat_id, user_id)
+            await manager.send_to_user(
+                user_id,
+                {
+                    "type": events.CHAT_UNREAD,
+                    "payload": {
+                        "chat_id": str(message.chat_id),
+                        "unread_count": unread_count,
+                    },
+                    "request_id": request_id,
+                },
+            )
             return
 
         if event_type in {events.TYPING_START, events.TYPING_STOP}:
@@ -126,6 +178,141 @@ async def handle_ws_event(user_id: UUID, frame: dict, db: AsyncSession) -> None:
                 },
                 exclude=user_id,
             )
+            return
+
+        if event_type == events.CALL_INVITE:
+            data = CallInvite.model_validate(payload)
+            call = await invite_call(
+                db, chat_id=data.chat_id, initiator_id=user_id, call_type=data.call_type
+            )
+            await _bind_all_chat_members(db, data.chat_id)
+            for member_id in await get_other_call_member_ids(db, call.id, user_id):
+                await manager.send_to_user(
+                    member_id,
+                    {
+                        "type": events.CALL_INCOMING,
+                        "payload": {
+                            **serialize_call(call),
+                            "sdp_offer": data.sdp_offer,
+                        },
+                        "request_id": request_id,
+                    },
+                )
+            return
+
+        if event_type == events.CALL_ACCEPT:
+            data = CallAccept.model_validate(payload)
+            call = await accept_call(db, call_id=data.call_id, user_id=user_id)
+            await _bind_all_chat_members(db, call.chat_id)
+            await manager.send_to_user(
+                call.initiator_id,
+                {
+                    "type": events.CALL_ACCEPTED,
+                    "payload": {
+                        **serialize_call(call),
+                        "accepted_by": str(user_id),
+                        "sdp_answer": data.sdp_answer,
+                    },
+                    "request_id": request_id,
+                },
+            )
+            return
+
+        if event_type == events.CALL_REJECT:
+            data = CallReject.model_validate(payload)
+            call = await reject_call(db, call_id=data.call_id, user_id=user_id)
+            await _bind_all_chat_members(db, call.chat_id)
+            await manager.send_to_user(
+                call.initiator_id,
+                {
+                    "type": events.CALL_REJECTED,
+                    "payload": {
+                        **serialize_call(call),
+                        "rejected_by": str(user_id),
+                    },
+                    "request_id": request_id,
+                },
+            )
+            return
+
+        if event_type == events.CALL_ICE_CANDIDATE:
+            data = CallIceCandidate.model_validate(payload)
+            for member_id in await get_other_call_member_ids(db, data.call_id, user_id):
+                await manager.send_to_user(
+                    member_id,
+                    {
+                        "type": events.CALL_ICE_CANDIDATE,
+                        "payload": {
+                            "call_id": str(data.call_id),
+                            "user_id": str(user_id),
+                            "candidate": data.candidate,
+                        },
+                        "request_id": request_id,
+                    },
+                )
+            return
+
+        if event_type == events.CALL_END:
+            data = CallEnd.model_validate(payload)
+            call = await end_call(db, call_id=data.call_id, user_id=user_id)
+            await _bind_all_chat_members(db, call.chat_id)
+            missed_message = None
+            if call.status == "missed":
+                missed_message = await create_message(
+                    db,
+                    chat_id=call.chat_id,
+                    user_id=call.initiator_id,
+                    content="Missed call",
+                    message_type="system",
+                )
+                for member_id in await get_other_call_member_ids(db, call.id, call.initiator_id):
+                    notification = await create_missed_call_notification(
+                        db,
+                        call_id=call.id,
+                        chat_id=call.chat_id,
+                        initiator_id=call.initiator_id,
+                        user_id=member_id,
+                    )
+                    await manager.send_to_user(
+                        member_id,
+                        {
+                            "type": events.NOTIFICATION_NEW,
+                            "payload": serialize_notification(notification),
+                            "request_id": request_id,
+                        },
+                    )
+                    unread_count = await count_chat_unread_messages(db, call.chat_id, member_id)
+                    await manager.send_to_user(
+                        member_id,
+                        {
+                            "type": events.CHAT_UNREAD,
+                            "payload": {
+                                "chat_id": str(call.chat_id),
+                                "unread_count": unread_count,
+                            },
+                            "request_id": request_id,
+                        },
+                    )
+            await manager.broadcast_to_chat(
+                call.chat_id,
+                {
+                    "type": events.CALL_ENDED,
+                    "payload": {
+                        **serialize_call(call),
+                        "ended_by": str(user_id),
+                    },
+                    "request_id": request_id,
+                },
+            )
+            if missed_message is not None:
+                await manager.broadcast_to_chat(
+                    call.chat_id,
+                    {
+                        "type": events.MESSAGE_RECEIVED,
+                        "payload": serialize_message(missed_message),
+                        "request_id": request_id,
+                    },
+                )
             return
 
         await _send_error(user_id, "unsupported_event", "Unsupported event", request_id=request_id)

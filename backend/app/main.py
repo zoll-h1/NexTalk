@@ -1,22 +1,33 @@
-from uuid import UUID
+from time import perf_counter
+from uuid import UUID, uuid4
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from jwt import InvalidTokenError
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import settings
+from app.core.logging import dumps_log, get_logger, setup_logging
+from app.core.rate_limit import rate_limiter
 from app.core.security import decode_access_token
 from app.db.base import get_session_factory
-from app.routers import auth, chats, messages, uploads, users
+from app.routers import auth, calls, chats, messages, notifications, uploads, users
 from app.services.chat_service import list_related_user_ids
 from app.services.user_service import set_user_presence
 from app.websocket import handle_ws_event, manager
+
+setup_logging(settings.log_level)
+request_logger = get_logger("nextalk.request")
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="NexTalk API", version="1.0.0")
     app.state.get_ws_session_factory = get_session_factory
 
+    app.add_middleware(GZipMiddleware, minimum_size=512)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -25,10 +36,58 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def log_and_limit_requests(request: Request, call_next):
+        request_id = request.headers.get("x-request-id", str(uuid4()))
+        client_ip = _get_client_ip(request)
+
+        if request.url.path == "/health" or request.url.path.startswith(settings.api_v1_prefix):
+            is_allowed, retry_after = rate_limiter.check(
+                client_ip, settings.rate_limit_requests, settings.rate_limit_window_seconds
+            )
+            if not is_allowed:
+                response = JSONResponse(
+                    status_code=429,
+                    content={"detail": "Rate limit exceeded"},
+                    headers={"Retry-After": str(retry_after), "X-Request-ID": request_id},
+                )
+                request_logger.warning(
+                    dumps_log(
+                        {
+                            "client_ip": client_ip,
+                            "method": request.method,
+                            "path": request.url.path,
+                            "request_id": request_id,
+                            "status_code": response.status_code,
+                        }
+                    )
+                )
+                return response
+
+        started_at = perf_counter()
+        response = await call_next(request)
+        duration_ms = round((perf_counter() - started_at) * 1000, 2)
+        response.headers["X-Request-ID"] = request_id
+        request_logger.info(
+            dumps_log(
+                {
+                    "client_ip": client_ip,
+                    "duration_ms": duration_ms,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "request_id": request_id,
+                    "status_code": response.status_code,
+                }
+            )
+        )
+        return response
+
     app.include_router(auth.router, prefix=settings.api_v1_prefix)
     app.include_router(users.router, prefix=settings.api_v1_prefix)
     app.include_router(chats.router, prefix=settings.api_v1_prefix)
     app.include_router(messages.router, prefix=settings.api_v1_prefix)
+    app.include_router(calls.router, prefix=settings.api_v1_prefix)
+    app.include_router(notifications.router, prefix=settings.api_v1_prefix)
     app.include_router(uploads.router, prefix=settings.api_v1_prefix)
 
     @app.websocket("/ws")
@@ -88,3 +147,12 @@ async def _broadcast_presence(
     }
     for related_user_id in related_user_ids:
         await manager.send_to_user(related_user_id, event)
+
+
+def _get_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client is not None:
+        return request.client.host
+    return "unknown"

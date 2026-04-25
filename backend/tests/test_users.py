@@ -24,6 +24,7 @@ async def test_update_me_profile(client):
         headers={"Authorization": f"Bearer {token}"},
         json={
             "display_name": "Charlie Updated",
+            "avatar_url": "avatars/demo/avatar.png",
             "bio": "Backend dev",
             "status": "away",
             "custom_status": "coding",
@@ -32,4 +33,5 @@ async def test_update_me_profile(client):
     assert update_response.status_code == 200
     body = update_response.json()
     assert body["display_name"] == "Charlie Updated"
+    assert body["avatar_url"] == "avatars/demo/avatar.png"
     assert body["status"] == "away"

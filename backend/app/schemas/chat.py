@@ -47,12 +47,18 @@ class ChatRead(BaseModel):
     id: UUID
     type: str
     name: str | None
+    display_name: str | None = None
     description: str | None
     avatar_url: str | None
+    display_avatar_url: str | None = None
     invite_link: str | None
     created_by: UUID
     created_at: datetime
     updated_at: datetime
+    unread_count: int = 0
+    peer_id: UUID | None = None
+    peer_username: str | None = None
+    peer_status: str | None = None
 
 
 class TopicCreate(BaseModel):

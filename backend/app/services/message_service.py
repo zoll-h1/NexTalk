@@ -34,6 +34,30 @@ async def list_chat_messages(
     return list((await session.execute(stmt)).scalars().all())
 
 
+async def search_chat_messages(
+    session: AsyncSession,
+    chat_id: UUID,
+    user_id: UUID,
+    query: str,
+    topic_id: UUID | None = None,
+    limit: int = 50,
+) -> list[Message]:
+    await _ensure_chat_membership(session, chat_id, user_id)
+
+    stmt = select(Message).where(
+        Message.chat_id == chat_id,
+        Message.is_deleted.is_(False),
+        Message.content.is_not(None),
+        Message.content.ilike(f"%{query}%"),
+    )
+    if topic_id is not None:
+        await _validate_topic_belongs_to_chat(session, chat_id, topic_id)
+        stmt = stmt.where(Message.topic_id == topic_id)
+
+    stmt = stmt.options(selectinload(Message.attachments)).order_by(desc(Message.created_at)).limit(limit)
+    return list((await session.execute(stmt)).scalars().all())
+
+
 async def create_message(
     session: AsyncSession,
     chat_id: UUID,

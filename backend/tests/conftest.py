@@ -2,16 +2,24 @@ from collections.abc import AsyncGenerator
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    close_all_sessions,
+    create_async_engine,
+)
 
 from app.core.dependencies import get_db
 from app.db.base import Base
 from app.db.models import (  # noqa: F401
     Attachment,
+    Call,
+    CallParticipant,
     Chat,
     ChatMember,
     Message,
     MessageRead,
+    Notification,
     RefreshToken,
     Topic,
     User,
@@ -28,7 +36,9 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
     session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with session_factory() as session:
         yield session
+        await session.close()
 
+    await close_all_sessions()
     await engine.dispose()
 
 
@@ -41,3 +51,4 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    await close_all_sessions()

@@ -16,6 +16,7 @@ class UserCreate(UserBase):
 
 class UserUpdateMe(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=64)
+    avatar_url: str | None = Field(default=None, max_length=2048)
     bio: str | None = Field(default=None, max_length=1000)
     status: str | None = Field(default=None, pattern="^(online|offline|away|do_not_disturb)$")
     custom_status: str | None = Field(default=None, max_length=128)

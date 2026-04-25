@@ -7,6 +7,7 @@ from sqlalchemy.orm import aliased
 
 from app.core.exceptions import bad_request_exception, forbidden_exception, not_found_exception
 from app.db.models.chat import Chat, ChatMember
+from app.db.models.message import Message, MessageRead
 from app.db.models.topic import Topic
 from app.db.models.user import User
 
@@ -18,7 +19,10 @@ async def list_user_chats(session: AsyncSession, user_id: UUID) -> list[Chat]:
         .where(ChatMember.user_id == user_id)
         .order_by(Chat.updated_at.desc())
     )
-    return list((await session.execute(stmt)).scalars().all())
+    chats = list((await session.execute(stmt)).scalars().all())
+    for chat in chats:
+        await hydrate_chat_summary(session, chat, user_id)
+    return chats
 
 
 async def list_related_user_ids(session: AsyncSession, user_id: UUID) -> list[UUID]:
@@ -46,6 +50,53 @@ async def get_chat_for_member(session: AsyncSession, chat_id: UUID, user_id: UUI
     chat = (await session.execute(stmt)).scalar_one_or_none()
     if chat is None:
         raise not_found_exception("Chat not found")
+    await hydrate_chat_summary(session, chat, user_id)
+    return chat
+
+
+async def count_chat_unread_messages(session: AsyncSession, chat_id: UUID, user_id: UUID) -> int:
+    stmt = (
+        select(func.count(Message.id))
+        .select_from(Message)
+        .outerjoin(
+            MessageRead,
+            and_(MessageRead.message_id == Message.id, MessageRead.user_id == user_id),
+        )
+        .where(
+            Message.chat_id == chat_id,
+            Message.sender_id != user_id,
+            Message.is_deleted.is_(False),
+            MessageRead.message_id.is_(None),
+        )
+    )
+    return int((await session.execute(stmt)).scalar_one())
+
+
+async def hydrate_chat_summary(session: AsyncSession, chat: Chat, viewer_id: UUID) -> Chat:
+    chat.unread_count = await count_chat_unread_messages(session, chat.id, viewer_id)
+    chat.display_name = chat.name
+    chat.display_avatar_url = chat.avatar_url
+    chat.peer_id = None
+    chat.peer_username = None
+    chat.peer_status = None
+
+    if chat.type != "direct":
+        return chat
+
+    stmt = (
+        select(User)
+        .join(ChatMember, ChatMember.user_id == User.id)
+        .where(and_(ChatMember.chat_id == chat.id, ChatMember.user_id != viewer_id))
+    )
+    peer = (await session.execute(stmt)).scalar_one_or_none()
+    if peer is None:
+        return chat
+
+    chat.display_name = peer.display_name or peer.username
+    chat.display_avatar_url = peer.avatar_url
+    chat.peer_id = peer.id
+    chat.peer_username = peer.username
+    chat.peer_status = peer.status
     return chat
 
 
@@ -70,6 +121,7 @@ async def create_or_get_direct_chat(session: AsyncSession, owner_id: UUID, peer_
         member_ids_stmt = select(ChatMember.user_id).where(ChatMember.chat_id == chat.id)
         member_ids = set((await session.execute(member_ids_stmt)).scalars().all())
         if member_ids == {owner_id, peer_id}:
+            await hydrate_chat_summary(session, chat, owner_id)
             return chat
 
     chat = Chat(type="direct", created_by=owner_id)
@@ -83,6 +135,7 @@ async def create_or_get_direct_chat(session: AsyncSession, owner_id: UUID, peer_
     )
     await session.commit()
     await session.refresh(chat)
+    await hydrate_chat_summary(session, chat, owner_id)
     return chat
 
 
@@ -114,6 +167,7 @@ async def create_group_chat(
     session.add_all(memberships)
     await session.commit()
     await session.refresh(chat)
+    await hydrate_chat_summary(session, chat, owner_id)
     return chat
 
 
@@ -192,6 +246,7 @@ async def update_chat(session: AsyncSession, chat_id: UUID, user_id: UUID, paylo
 
     await session.commit()
     await session.refresh(chat)
+    await hydrate_chat_summary(session, chat, user_id)
     return chat
 
 

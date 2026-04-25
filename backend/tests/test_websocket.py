@@ -5,7 +5,12 @@ from collections.abc import AsyncGenerator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    close_all_sessions,
+    create_async_engine,
+)
 from starlette.websockets import WebSocketDisconnect
 
 from app.core.dependencies import get_db
@@ -44,6 +49,7 @@ def ws_client():
     manager.reset()
     app.dependency_overrides.clear()
     app.state.get_ws_session_factory = original_ws_provider
+    asyncio.run(close_all_sessions())
     asyncio.run(engine.dispose())
     os.unlink(db_path)
 
@@ -214,6 +220,172 @@ def test_ws_attachment_message_delivery(ws_client: TestClient):
         assert owner_message["payload"]["attachments"][0]["file_name"] == "ws_file.pdf"
         assert peer_message["payload"]["attachments"][0]["s3_key"].endswith("ws_file.pdf")
         assert peer_message["payload"]["temp_id"] == "temp-attach-1"
+
+
+def test_ws_message_notifications_and_unread_updates(ws_client: TestClient):
+    owner_token = _register(ws_client, "wsnotifowner", "wsnotifowner@example.com")["access_token"]
+    peer_token = _register(ws_client, "wsnotifpeer", "wsnotifpeer@example.com")["access_token"]
+    peer = _me(ws_client, peer_token)
+    chat = _create_direct_chat(ws_client, owner_token, peer["id"])
+
+    with (
+        ws_client.websocket_connect(f"/ws?token={owner_token}") as owner_ws,
+        ws_client.websocket_connect(f"/ws?token={peer_token}") as peer_ws,
+    ):
+        _receive_event(
+            owner_ws,
+            "user:presence",
+            lambda event: event["payload"]["user_id"] == peer["id"]
+            and event["payload"]["status"] == "online",
+        )
+
+        owner_ws.send_json(
+            {
+                "type": "message:send",
+                "request_id": "req-notif-1",
+                "payload": {
+                    "chat_id": chat["id"],
+                    "content": "hello @wsnotifpeer",
+                    "type": "text",
+                },
+            }
+        )
+        _receive_event(peer_ws, "message:received")
+        notification = _receive_event(peer_ws, "notification:new")
+        unread = _receive_event(peer_ws, "chat:unread")
+
+        assert notification["payload"]["type"] == "mention"
+        assert notification["payload"]["payload"]["chat_id"] == chat["id"]
+        assert unread["payload"]["chat_id"] == chat["id"]
+        assert unread["payload"]["unread_count"] == 1
+
+
+def test_ws_call_signaling_flow(ws_client: TestClient):
+    owner_token = _register(ws_client, "wscallowner", "wscallowner@example.com")["access_token"]
+    peer_token = _register(ws_client, "wscallpeer", "wscallpeer@example.com")["access_token"]
+    peer = _me(ws_client, peer_token)
+    chat = _create_direct_chat(ws_client, owner_token, peer["id"])
+
+    with (
+        ws_client.websocket_connect(f"/ws?token={owner_token}") as owner_ws,
+        ws_client.websocket_connect(f"/ws?token={peer_token}") as peer_ws,
+    ):
+        _receive_event(
+            owner_ws,
+            "user:presence",
+            lambda event: event["payload"]["user_id"] == peer["id"]
+            and event["payload"]["status"] == "online",
+        )
+
+        owner_ws.send_json(
+            {
+                "type": "call:invite",
+                "request_id": "req-call-1",
+                "payload": {
+                    "chat_id": chat["id"],
+                    "call_type": "audio",
+                    "sdp_offer": {"type": "offer", "sdp": "fake-offer"},
+                },
+            }
+        )
+        incoming = _receive_event(peer_ws, "call:incoming")
+        assert incoming["payload"]["chat_id"] == chat["id"]
+        assert incoming["payload"]["type"] == "audio"
+        assert incoming["payload"]["status"] == "ringing"
+        assert incoming["payload"]["sdp_offer"]["type"] == "offer"
+        call_id = incoming["payload"]["id"]
+
+        peer_ws.send_json(
+            {
+                "type": "call:accept",
+                "request_id": "req-call-2",
+                "payload": {
+                    "call_id": call_id,
+                    "sdp_answer": {"type": "answer", "sdp": "fake-answer"},
+                },
+            }
+        )
+        accepted = _receive_event(owner_ws, "call:accepted")
+        assert accepted["payload"]["id"] == call_id
+        assert accepted["payload"]["status"] == "active"
+        assert accepted["payload"]["sdp_answer"]["type"] == "answer"
+
+        owner_ws.send_json(
+            {
+                "type": "call:ice_candidate",
+                "request_id": "req-call-3",
+                "payload": {
+                    "call_id": call_id,
+                    "candidate": {"candidate": "ice-1"},
+                },
+            }
+        )
+        candidate = _receive_event(peer_ws, "call:ice_candidate")
+        assert candidate["payload"]["call_id"] == call_id
+        assert candidate["payload"]["candidate"]["candidate"] == "ice-1"
+
+        peer_ws.send_json(
+            {
+                "type": "call:end",
+                "request_id": "req-call-4",
+                "payload": {"call_id": call_id},
+            }
+        )
+        owner_ended = _receive_event(owner_ws, "call:ended")
+        peer_ended = _receive_event(peer_ws, "call:ended")
+        assert owner_ended["payload"]["id"] == call_id
+        assert owner_ended["payload"]["status"] == "ended"
+        assert peer_ended["payload"]["ended_by"] == peer["id"]
+
+
+def test_ws_missed_call_generates_notification_and_system_message(ws_client: TestClient):
+    owner_token = _register(ws_client, "wsmissedowner", "wsmissedowner@example.com")["access_token"]
+    peer_token = _register(ws_client, "wsmissedpeer", "wsmissedpeer@example.com")["access_token"]
+    peer = _me(ws_client, peer_token)
+    chat = _create_direct_chat(ws_client, owner_token, peer["id"])
+
+    with (
+        ws_client.websocket_connect(f"/ws?token={owner_token}") as owner_ws,
+        ws_client.websocket_connect(f"/ws?token={peer_token}") as peer_ws,
+    ):
+        _receive_event(
+            owner_ws,
+            "user:presence",
+            lambda event: event["payload"]["user_id"] == peer["id"]
+            and event["payload"]["status"] == "online",
+        )
+
+        owner_ws.send_json(
+            {
+                "type": "call:invite",
+                "request_id": "req-missed-1",
+                "payload": {
+                    "chat_id": chat["id"],
+                    "call_type": "audio",
+                    "sdp_offer": {"type": "offer", "sdp": "offer"},
+                },
+            }
+        )
+        incoming = _receive_event(peer_ws, "call:incoming")
+        call_id = incoming["payload"]["id"]
+
+        owner_ws.send_json(
+            {
+                "type": "call:end",
+                "request_id": "req-missed-2",
+                "payload": {"call_id": call_id},
+            }
+        )
+
+        missed_notification = _receive_event(peer_ws, "notification:new")
+        unread = _receive_event(peer_ws, "chat:unread")
+        ended = _receive_event(peer_ws, "call:ended")
+        system_message = _receive_event(peer_ws, "message:received")
+
+        assert missed_notification["payload"]["type"] == "call_missed"
+        assert unread["payload"]["unread_count"] == 1
+        assert ended["payload"]["status"] == "missed"
+        assert system_message["payload"]["content"] == "Missed call"
 
 
 def test_ws_typing_indicator_and_presence(ws_client: TestClient):
