@@ -15,7 +15,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_TURN_PASS=$NEXT_PUBLIC_TURN_PASS
 
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm install -g npm@latest && npm ci --prefer-offline || npm install
 
 COPY frontend/ .
 RUN npm run build
@@ -31,7 +31,7 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 COPY --from=builder /app/next.config.mjs ./next.config.mjs
 
-RUN npm ci --omit=dev
+RUN npm install -g npm@latest && npm ci --omit=dev || npm install --omit=dev
 
 EXPOSE 3000
 

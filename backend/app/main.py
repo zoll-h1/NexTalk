@@ -1,3 +1,5 @@
+import json
+from contextlib import asynccontextmanager
 from time import perf_counter
 from uuid import UUID, uuid4
 
@@ -15,15 +17,45 @@ from app.core.security import decode_access_token
 from app.db.base import get_session_factory
 from app.routers import auth, calls, chats, messages, notifications, uploads, users
 from app.services.chat_service import list_related_user_ids
+from app.services.storage_service import get_s3_client
 from app.services.user_service import set_user_presence
 from app.websocket import handle_ws_event, manager
 
 setup_logging(settings.log_level)
 request_logger = get_logger("nextalk.request")
 
+_AVATAR_POLICY = json.dumps({
+    "Version": "2012-10-17",
+    "Statement": [{
+        "Effect": "Allow",
+        "Principal": {"AWS": ["*"]},
+        "Action": ["s3:GetObject"],
+        "Resource": [f"arn:aws:s3:::{settings.storage_bucket_name}/avatars/*"],
+    }],
+})
+
+
+def _ensure_storage() -> None:
+    """Create the S3 bucket if it doesn't exist and apply the public-read policy for avatars."""
+    try:
+        client = get_s3_client()
+        try:
+            client.head_bucket(Bucket=settings.storage_bucket_name)
+        except Exception:
+            client.create_bucket(Bucket=settings.storage_bucket_name)
+        client.put_bucket_policy(Bucket=settings.storage_bucket_name, Policy=_AVATAR_POLICY)
+    except Exception as exc:  # noqa: BLE001
+        request_logger.warning("Storage init warning: %s", exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _ensure_storage()
+    yield
+
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="NexTalk API", version="1.0.0")
+    app = FastAPI(title="NexTalk API", version="1.0.0", lifespan=lifespan)
     app.state.get_ws_session_factory = get_session_factory
 
     app.add_middleware(GZipMiddleware, minimum_size=512)
@@ -113,10 +145,11 @@ def create_app() -> FastAPI:
             await _broadcast_presence(app, user_uuid, "online")
             while True:
                 frame = await websocket.receive_json()
-                async with app.state.get_ws_session_factory() as session:
+                async with app.state.get_ws_session_factory()() as session:
                     await handle_ws_event(user_id=user_uuid, frame=frame, db=session)
         except WebSocketDisconnect:
             await manager.disconnect(websocket, user_uuid)
+            await _broadcast_presence(app, user_uuid, "offline", update_last_seen=True)
 
     @app.get("/health", tags=["health"])
     async def health() -> dict[str, str]:
@@ -131,7 +164,7 @@ app = create_app()
 async def _broadcast_presence(
     app: FastAPI, user_id: UUID, status: str, update_last_seen: bool = False
 ) -> None:
-    async with app.state.get_ws_session_factory() as session:
+    async with app.state.get_ws_session_factory()() as session:
         user = await set_user_presence(
             session, user_id=user_id, status=status, update_last_seen=update_last_seen
         )

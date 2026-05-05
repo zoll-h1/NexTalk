@@ -28,12 +28,16 @@ from app.services.chat_service import (
     delete_chat,
     get_chat_for_member,
     leave_chat,
+    list_chat_member_ids,
+    list_chat_members,
     list_topics,
     list_user_chats,
     remove_chat_member,
     update_chat,
     update_topic,
 )
+from app.websocket import manager
+from app.websocket import events
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
@@ -71,7 +75,13 @@ async def create_group(
         description=payload.description,
         supergroup=False,
     )
-    return ChatRead.model_validate(chat)
+    chat_data = ChatRead.model_validate(chat)
+    member_ids = await list_chat_member_ids(db, chat.id)
+    event = {"type": events.CHAT_NEW, "payload": chat_data.model_dump(mode="json")}
+    for uid in member_ids:
+        if uid != current_user.id:
+            await manager.send_to_user(uid, event)
+    return chat_data
 
 
 @router.post("/supergroup", response_model=ChatRead)
@@ -121,6 +131,16 @@ async def remove_chat(
     await delete_chat(db, chat_id, current_user.id)
 
 
+@router.get("/{chat_id}/members", response_model=list[ChatMemberRead])
+async def get_members(
+    chat_id: UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[ChatMemberRead]:
+    members = await list_chat_members(db, chat_id, current_user.id)
+    return [ChatMemberRead.model_validate(m) for m in members]
+
+
 @router.post("/{chat_id}/members", response_model=ChatMemberRead, status_code=201)
 async def add_member(
     chat_id: UUID,
@@ -129,6 +149,12 @@ async def add_member(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> ChatMemberRead:
     membership = await add_chat_member(db, chat_id, current_user.id, payload.user_id)
+    chat = await get_chat_for_member(db, chat_id, payload.user_id)
+    chat_data = ChatRead.model_validate(chat)
+    await manager.send_to_user(
+        payload.user_id,
+        {"type": events.CHAT_NEW, "payload": chat_data.model_dump(mode="json")},
+    )
     return ChatMemberRead.model_validate(membership)
 
 

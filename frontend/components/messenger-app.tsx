@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { API_BASE_URL, ApiError, WS_BASE_URL, apiRequest } from "@/lib/api";
@@ -10,6 +9,7 @@ import type {
   AuthResponse,
   CallRecord,
   Chat,
+  ChatMember,
   DownloadPresignResponse,
   Message,
   NotificationItem,
@@ -103,6 +103,31 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function getInitials(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function formatNotificationTitle(type: string) {
+  return type
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function getNotificationPreview(notification: NotificationItem) {
+  return (
+    notification.payload.preview ??
+    notification.payload.chat_id ??
+    notification.payload.call_id ??
+    "Notification payload received."
+  );
+}
+
 function getPresenceClass(status: UserStatus | null | undefined) {
   switch (status) {
     case "online":
@@ -114,6 +139,26 @@ function getPresenceClass(status: UserStatus | null | undefined) {
     default:
       return "presence-dot";
   }
+}
+
+interface AvatarProps {
+  label: string;
+  size?: "sm" | "md" | "lg";
+  src?: string | null;
+}
+
+function Avatar({ label, size = "md", src }: AvatarProps) {
+  const sizeClass = size === "sm" ? "h-8 w-8" : size === "lg" ? "h-20 w-20" : "h-10 w-10";
+  return (
+    <div className={`avatar ${sizeClass}`}>
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img alt={label} className="avatar-image" src={src} />
+      ) : (
+        <span className="avatar-initials">{getInitials(label)}</span>
+      )}
+    </div>
+  );
 }
 
 function inferMessageType(files: File[]): UiMessage["type"] {
@@ -166,6 +211,30 @@ function getIceServers() {
   return servers;
 }
 
+function stringToColor(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const colors = ["#60a5fa","#34d399","#f87171","#a78bfa","#fb923c","#38bdf8","#f472b6","#4ade80","#facc15","#e879f9"];
+  return colors[Math.abs(hash) % colors.length] ?? "#60a5fa";
+}
+
+const EMOJI_CATEGORIES = [
+  { icon: "😀", label: "Smileys", emojis: ["😀","😁","😂","🤣","😃","😄","😅","😆","😉","😊","😋","😎","😍","🥰","😘","🤩","😏","😒","😞","😔","😟","😕","🙁","☹️","😣","😖","😫","😩","🥺","😢","😭","😤","😠","😡","🤬","🤯","😳","🥵","🥶","😱","😨","😰","😥","😓","🤗","🤔","🫡","🤭","🤫","🤥","😶","😐","😑","😬","🙄","😯","😦","😧","😮","😲","🥱","😴","🤤","😪","😵","🤐","🥴","🤢","🤮","🤧","😷","🤒","🤕"] },
+  { icon: "👍", label: "Gestures", emojis: ["👋","🤚","🖐️","✋","🖖","👌","🤌","🤏","✌️","🤞","🫰","🤟","🤘","🤙","🫵","👈","👉","👆","🖕","👇","☝️","👍","👎","✊","👊","🤛","🤜","👏","🙌","🫶","👐","🤲","🙏","✍️","💅","🤳","💪","🦾","🦿","🦵","🦶","👂","🦻","👃","👀","👁️","👄","🫦","🦷","👅","🫀","🫁","🧠","🦴","🦷"] },
+  { icon: "❤️", label: "Hearts", emojis: ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","❤️‍🔥","❤️‍🩹","💔","💕","💞","💓","💗","💖","💘","💝","💟","☮️","✝️","☪️","🔯","☸️","✡️","🕉️","⛎","♈","♉","♊","♋","♌","♍","♎","♏","♐","♑","♒","♓","💯","💢","💥","💫","💦","💨","🕳️","💬","💭","💤"] },
+  { icon: "🎉", label: "Celebration", emojis: ["🎉","🎊","🎈","🎁","🎀","🎗️","🏆","🥇","🥈","🥉","🏅","🎖️","🎗️","🎫","🎟️","🎪","🤹","🎭","🎨","🎬","🎤","🎧","🎼","🎹","🥁","🎷","🎺","🎸","🪕","🎻","🪗","🎮","🕹️","🎲","♟️","🧩","🧸","🪆","🎯","🎳","🎱","🏓","🏸","🥊","🥋","🎽","🛹","🛼","🛷","⛸️"] },
+  { icon: "🌟", label: "Nature", emojis: ["🌸","🌺","🌻","🌹","🌷","💐","🌼","🪷","🪻","🌱","🌿","☘️","🍀","🎋","🎍","🍃","🍂","🍁","🪺","🌾","🐚","🪸","🌵","🎄","🌲","🌳","🌴","🪵","🌊","🌈","⛅","🌤️","🌦️","🌧️","⛈️","🌩️","🌨️","❄️","☃️","⛄","🌬️","💨","🌪️","🌫️","🌊","🌙","🌛","🌜","☀️","🌞","⭐","🌟","💫","✨","🌠","☄️","🌏"] },
+  { icon: "🍕", label: "Food", emojis: ["🍕","🍔","🌮","🌯","🥙","🧆","🥚","🍳","🥞","🧇","🥓","🥩","🍗","🍖","🌭","🍟","🍝","🍜","🍲","🍛","🍣","🍱","🥟","🦪","🍤","🍙","🍘","🍥","🍡","🥮","🍢","🧁","🍰","🎂","🍮","🍭","🍬","🍫","🍿","🍩","🍪","🌰","🥜","🍯","🧃","🥤","🧋","☕","🍵","🫖","🍺","🍻","🥂","🍷","🥃","🍸","🍹"] },
+  { icon: "🚀", label: "Travel", emojis: ["🚀","✈️","🛸","🚁","🛺","🚂","🚃","🚄","🚅","🚆","🚇","🚈","🚉","🚊","🚝","🚞","🚋","🚌","🚍","🚎","🏎️","🚐","🚑","🚒","🚓","🚔","🚕","🚖","🚗","🚘","🚙","🛻","🚚","🚛","🚜","🛵","🏍️","🛺","🚲","🛴","🛹","🛼","🚏","🛣️","🛤️","⛽","🚨","🚥","🚦","🚧","⚓","🛟","⛵","🚤","🛥️","🛳️","⛴️","🚢","🛩️","💺"] },
+  { icon: "🐱", label: "Animals", emojis: ["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🐒","🦆","🐧","🐦","🦅","🦉","🦇","🐺","🐗","🐴","🦄","🐝","🐛","🦋","🐌","🐞","🐜","🪲","🦟","🦗","🪳","🕷️","🦂","🐢","🐍","🦎","🦖","🦕","🐙","🦑","🦐","🦞","🦀","🐡","🐠","🐟","🐬","🐳","🐋","🦈","🐊","🐅"] },
+];
+
+const STICKERS = [
+  "🥳","🤩","😎","🤓","👻","💀","☠️","🤖","👾","🎃","🥸","🤡","👹","👺","👿","😈","🧙","🧝","🧛","🧟","🧞","🧜","🧚","👼","🤶","🎅","🧑‍🎄","🦸","🦹","🧑‍🚀","👨‍🔬","👩‍🎤","🧑‍🍳","👨‍💻","🧑‍🎨","💃","🕺","🏋️","🤸","🧘","🏄","🤽","🚴","🤺","⛷️","🏂","🪂","🏇","🧗","🤼","🤾","🏌️","🏊","🚣"
+];
+
 export function MessengerApp() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
@@ -186,6 +255,8 @@ export function MessengerApp() {
   });
   const [profileAvatarFile, setProfileAvatarFile] = useState<File | null>(null);
   const [profileAvatarPreviewUrl, setProfileAvatarPreviewUrl] = useState<string | null>(null);
+  const [groupAvatarFile, setGroupAvatarFile] = useState<File | null>(null);
+  const [groupAvatarPreviewUrl, setGroupAvatarPreviewUrl] = useState<string | null>(null);
   const [groupForm, setGroupForm] = useState<GroupFormState>({
     description: "",
     mode: "group",
@@ -198,9 +269,27 @@ export function MessengerApp() {
   const [appError, setAppError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [isCalling, setIsCalling] = useState(false);
   const [socketConnected, setSocketConnected] = useState(false);
   const [chats, setChats] = useState<Chat[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [isNotificationsOpen, setNotificationsOpen] = useState(false);
+  const [isProfileOpen, setProfileOpen] = useState(false);
+  const [isNewChatOpen, setNewChatOpen] = useState(false);
+  const [isDetailsOpen, setDetailsOpen] = useState(false);
+  // Group settings state
+  const [groupMembers, setGroupMembers] = useState<ChatMember[]>([]);
+  const [groupMembersLoading, setGroupMembersLoading] = useState(false);
+  const [groupEditName, setGroupEditName] = useState("");
+  const [groupEditDesc, setGroupEditDesc] = useState("");
+  const [groupEditBusy, setGroupEditBusy] = useState(false);
+  const [groupAddUserQuery, setGroupAddUserQuery] = useState("");
+  const [groupAddUserResults, setGroupAddUserResults] = useState<User[]>([]);
+  const [isChatSearchOpen, setIsChatSearchOpen] = useState(false);
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+  const [emojiPickerTab, setEmojiPickerTab] = useState(0);
   const [messagesByKey, setMessagesByKey] = useState<Record<string, UiMessage[]>>({});
   const [topicsByChat, setTopicsByChat] = useState<Record<string, Topic[]>>({});
   const [selectedTopicIdByChat, setSelectedTopicIdByChat] = useState<Record<string, string | null>>({});
@@ -224,6 +313,8 @@ export function MessengerApp() {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [callError, setCallError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const socketReconnectTimeoutRef = useRef<number | null>(null);
+  const socketReconnectAttemptsRef = useRef(0);
   const typingTimeoutRef = useRef<number | null>(null);
   const typingActiveRef = useRef(false);
   const selectedChatIdRef = useRef<string | null>(null);
@@ -271,6 +362,26 @@ export function MessengerApp() {
       status: currentUser.status,
     });
   }, [currentUser]);
+
+  useEffect(() => {
+    if (profileAvatarFile) {
+      const url = URL.createObjectURL(profileAvatarFile);
+      setProfileAvatarPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setProfileAvatarPreviewUrl(null);
+    }
+  }, [profileAvatarFile]);
+
+  useEffect(() => {
+    if (groupAvatarFile) {
+      const url = URL.createObjectURL(groupAvatarFile);
+      setGroupAvatarPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setGroupAvatarPreviewUrl(null);
+    }
+  }, [groupAvatarFile]);
 
   const mergeUsers = useCallback((users: User[]) => {
     if (users.length === 0) {
@@ -378,23 +489,6 @@ export function MessengerApp() {
     },
     [authorizedRequest],
   );
-
-  const loadProfileAvatarPreview = useCallback(async () => {
-    if (!currentUser?.avatar_url) {
-      setProfileAvatarPreviewUrl(null);
-      return;
-    }
-    try {
-      const downloadUrl = await ensureDownloadUrl(currentUser.avatar_url);
-      setProfileAvatarPreviewUrl(downloadUrl);
-    } catch {
-      setProfileAvatarPreviewUrl(null);
-    }
-  }, [currentUser?.avatar_url, ensureDownloadUrl]);
-
-  useEffect(() => {
-    void loadProfileAvatarPreview();
-  }, [loadProfileAvatarPreview]);
 
   useEffect(() => {
     let active = true;
@@ -617,6 +711,21 @@ export function MessengerApp() {
     [sendSocketEvent],
   );
 
+  const fetchGroupMembers = useCallback(
+    async (chatId: string) => {
+      setGroupMembersLoading(true);
+      try {
+        const members = await authorizedRequest<ChatMember[]>(`/chats/${chatId}/members`);
+        setGroupMembers(members);
+      } catch {
+        // ignore
+      } finally {
+        setGroupMembersLoading(false);
+      }
+    },
+    [authorizedRequest],
+  );
+
   const loadMessages = useCallback(
     async (chatId: string, topicId: string | null) => {
       const key = getMessageKey(chatId, topicId);
@@ -651,7 +760,12 @@ export function MessengerApp() {
     if (selectedChat.type === "supergroup" && !topicsByChat[selectedChat.id]) {
       void loadTopics(selectedChat.id);
     }
-  }, [callHistoryByChat, loadCallHistory, loadTopics, selectedChat, topicsByChat]);
+    if (selectedChat.type === "group" || selectedChat.type === "supergroup") {
+      setGroupEditName(selectedChat.name ?? "");
+      setGroupEditDesc(selectedChat.description ?? "");
+      void fetchGroupMembers(selectedChat.id);
+    }
+  }, [callHistoryByChat, fetchGroupMembers, loadCallHistory, loadTopics, selectedChat, topicsByChat]);
 
   useEffect(() => {
     if (!selectedChatId || !selectedMessageKey || messagesByKey[selectedMessageKey]) {
@@ -826,6 +940,14 @@ export function MessengerApp() {
           cleanupCall();
           return;
         }
+        case "chat:new": {
+          const newChat = payload as unknown as Chat;
+          setChats((current) => {
+            if (current.some((c) => c.id === newChat.id)) return current;
+            return [newChat, ...current];
+          });
+          return;
+        }
         default:
           return;
       }
@@ -844,20 +966,55 @@ export function MessengerApp() {
     if (!accessToken || !currentUser) {
       return;
     }
-    const socket = new WebSocket(`${WS_BASE_URL}?token=${encodeURIComponent(accessToken)}`);
-    socketRef.current = socket;
-    socket.addEventListener("open", () => setSocketConnected(true));
-    socket.addEventListener("close", () => setSocketConnected(false));
-    socket.addEventListener("error", () => setSocketConnected(false));
-    socket.addEventListener("message", (incoming) => {
-      const event = JSON.parse(incoming.data) as WebSocketEvent<Record<string, unknown>>;
-      void handleSocketEvent(event);
-    });
+
+    let destroyed = false;
+
+    function connect() {
+      if (destroyed) return;
+      const socket = new WebSocket(`${WS_BASE_URL}?token=${encodeURIComponent(accessToken!)}`);
+      socketRef.current = socket;
+      console.log("[DEBUG] WebSocket connecting to:", WS_BASE_URL);
+
+      socket.addEventListener("open", () => {
+        if (destroyed) { socket.close(); return; }
+        console.log("[DEBUG] WebSocket connected");
+        socketReconnectAttemptsRef.current = 0;
+        setSocketConnected(true);
+      });
+
+      socket.addEventListener("close", (ev) => {
+        console.log("[DEBUG] WebSocket closed", ev.code, ev.reason);
+        setSocketConnected(false);
+        if (socketRef.current === socket) socketRef.current = null;
+        // Don't reconnect on auth errors (4001)
+        if (destroyed || ev.code === 4001) return;
+        const delay = Math.min(1000 * 2 ** socketReconnectAttemptsRef.current, 30000);
+        socketReconnectAttemptsRef.current += 1;
+        console.log(`[DEBUG] WebSocket reconnecting in ${delay}ms`);
+        socketReconnectTimeoutRef.current = window.setTimeout(connect, delay);
+      });
+
+      socket.addEventListener("error", (error) => {
+        console.error("[DEBUG] WebSocket error:", error);
+        setSocketConnected(false);
+      });
+
+      socket.addEventListener("message", (incoming) => {
+        const event = JSON.parse(incoming.data) as WebSocketEvent<Record<string, unknown>>;
+        void handleSocketEvent(event);
+      });
+    }
+
+    connect();
+
     return () => {
-      socket.close();
-      if (socketRef.current === socket) {
-        socketRef.current = null;
+      destroyed = true;
+      if (socketReconnectTimeoutRef.current) {
+        window.clearTimeout(socketReconnectTimeoutRef.current);
+        socketReconnectTimeoutRef.current = null;
       }
+      socketRef.current?.close();
+      socketRef.current = null;
     };
   }, [accessToken, currentUser, handleSocketEvent]);
 
@@ -961,15 +1118,37 @@ export function MessengerApp() {
     }
     setBusyLabel(`Creating ${groupForm.mode}...`);
     try {
+      let avatarUrl = null;
+      if (groupAvatarFile) {
+        const presigned = await authorizedRequest<UploadPresignResponse>("/uploads/presigned", {
+          body: {
+            file_name: groupAvatarFile.name,
+            file_size: groupAvatarFile.size,
+            mime_type: groupAvatarFile.type || "application/octet-stream",
+            scope: "avatar",
+          },
+          method: "POST",
+        });
+        const uploadResponse = await fetch(presigned.upload_url, {
+          body: groupAvatarFile,
+          headers: { "Content-Type": groupAvatarFile.type || "application/octet-stream" },
+          method: "PUT",
+        });
+        if (uploadResponse.ok) {
+          avatarUrl = presigned.s3_key;
+        }
+      }
       const endpoint = groupForm.mode === "group" ? "/chats/group" : "/chats/supergroup";
       const payload =
         groupForm.mode === "group"
           ? {
+              avatar_url: avatarUrl,
               description: groupForm.description || null,
               member_ids: selectedGroupMemberIds,
               name: groupForm.name.trim(),
             }
           : {
+              avatar_url: avatarUrl,
               description: groupForm.description || null,
               name: groupForm.name.trim(),
             };
@@ -983,14 +1162,17 @@ export function MessengerApp() {
       }
       setChats((current) => [chat, ...current.filter((entry) => entry.id !== chat.id)]);
       setSelectedChatId(chat.id);
+      setNewChatOpen(false);
       setGroupForm({ description: "", mode: "group", name: "" });
       setSelectedGroupMemberIds([]);
+      setGroupAvatarFile(null);
+      setGroupAvatarPreviewUrl(null);
     } catch (error) {
       setAppError(error instanceof Error ? error.message : "Unable to create the group.");
     } finally {
       setBusyLabel(null);
     }
-  }, [authorizedRequest, groupForm, selectedGroupMemberIds]);
+  }, [authorizedRequest, groupForm, selectedGroupMemberIds, groupAvatarFile]);
 
   const uploadAttachments = useCallback(
     async (chatId: string, files: File[]) => {
@@ -1081,14 +1263,27 @@ export function MessengerApp() {
   const handleMessageSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      console.log("[DEBUG] handleMessageSubmit called", { 
+        socketConnected, 
+        selectedChat: selectedChat?.id, 
+        currentUser: currentUser?.id,
+        composerTextLength: composerText.length,
+        pendingFilesCount: pendingFiles.length
+      });
       if (!selectedChat || !currentUser) {
+        console.log("[DEBUG] No selected chat or current user");
         return;
       }
       const trimmed = composerText.trim();
       if (!trimmed && pendingFiles.length === 0) {
+        console.log("[DEBUG] No text or files to send");
         return;
       }
-      setBusyLabel("Sending message...");
+      if (!socketConnected) {
+        console.log("[DEBUG] Socket not connected, cannot send message");
+        return;
+      }
+      setSendingMessage(true);
       try {
         const attachments = await uploadAttachments(selectedChat.id, pendingFiles);
         const tempId = crypto.randomUUID();
@@ -1144,7 +1339,7 @@ export function MessengerApp() {
       } catch (error) {
         setAppError(error instanceof Error ? error.message : "Unable to send the message.");
       } finally {
-        setBusyLabel(null);
+        setSendingMessage(false);
       }
     },
     [
@@ -1155,6 +1350,7 @@ export function MessengerApp() {
       selectedChat,
       selectedTopicId,
       sendSocketEvent,
+      socketConnected,
       stopTyping,
       uploadAttachments,
     ],
@@ -1291,9 +1487,16 @@ export function MessengerApp() {
   );
 
   const uploadAvatarIfNeeded = useCallback(async () => {
+    console.log("[DEBUG] uploadAvatarIfNeeded called", { 
+      hasFile: !!profileAvatarFile,
+      fileName: profileAvatarFile?.name,
+      fileSize: profileAvatarFile?.size,
+      currentAvatarUrl: profileForm.avatar_url
+    });
     if (!profileAvatarFile) {
       return profileForm.avatar_url || null;
     }
+    console.log("[DEBUG] Requesting presigned URL for avatar upload");
     const presigned = await authorizedRequest<UploadPresignResponse>("/uploads/presigned", {
       body: {
         file_name: profileAvatarFile.name,
@@ -1303,14 +1506,17 @@ export function MessengerApp() {
       },
       method: "POST",
     });
+    console.log("[DEBUG] Got presigned URL, uploading file");
     const uploadResponse = await fetch(presigned.upload_url, {
       body: profileAvatarFile,
       headers: { "Content-Type": profileAvatarFile.type || "application/octet-stream" },
       method: "PUT",
     });
     if (!uploadResponse.ok) {
+      console.error("[DEBUG] Avatar upload failed", uploadResponse.status, uploadResponse.statusText);
       throw new Error("Unable to upload the avatar.");
     }
+    console.log("[DEBUG] Avatar uploaded successfully, S3 key:", presigned.s3_key);
     return presigned.s3_key;
   }, [authorizedRequest, profileAvatarFile, profileForm.avatar_url]);
 
@@ -1320,7 +1526,7 @@ export function MessengerApp() {
       if (!currentUser) {
         return;
       }
-      setBusyLabel("Saving profile...");
+      setSavingProfile(true);
       try {
         const avatarUrl = await uploadAvatarIfNeeded();
         const user = await authorizedRequest<User>("/users/me", {
@@ -1339,19 +1545,109 @@ export function MessengerApp() {
       } catch (error) {
         setAppError(error instanceof Error ? error.message : "Unable to save the profile.");
       } finally {
-        setBusyLabel(null);
+        setSavingProfile(false);
       }
     },
     [authorizedRequest, currentUser, mergeUsers, profileForm, uploadAvatarIfNeeded],
   );
 
+  const handleGroupSave = useCallback(
+    async (chatId: string) => {
+      setGroupEditBusy(true);
+      try {
+        const updated = await authorizedRequest<Chat>(`/chats/${chatId}`, {
+          method: "PATCH",
+          body: { name: groupEditName, description: groupEditDesc },
+        });
+        setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, ...updated } : c)));
+      } catch (error) {
+        setAppError(error instanceof Error ? error.message : "Unable to update group.");
+      } finally {
+        setGroupEditBusy(false);
+      }
+    },
+    [authorizedRequest, groupEditDesc, groupEditName],
+  );
+
+  const handleGroupAvatarUpload = useCallback(
+    async (chatId: string, file: File) => {
+      try {
+        const presigned = await authorizedRequest<UploadPresignResponse>("/uploads/presigned", {
+          body: { file_name: file.name, file_size: file.size, mime_type: file.type || "application/octet-stream", scope: "avatar" },
+          method: "POST",
+        });
+        const uploadResponse = await fetch(presigned.upload_url, {
+          body: file,
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          method: "PUT",
+        });
+        if (!uploadResponse.ok) throw new Error("Upload failed");
+        const updated = await authorizedRequest<Chat>(`/chats/${chatId}`, {
+          method: "PATCH",
+          body: { avatar_url: presigned.s3_key },
+        });
+        setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, ...updated } : c)));
+      } catch (error) {
+        setAppError(error instanceof Error ? error.message : "Unable to upload avatar.");
+      }
+    },
+    [authorizedRequest],
+  );
+
+  const handleGroupAddMember = useCallback(
+    async (chatId: string, userId: string) => {
+      try {
+        await authorizedRequest(`/chats/${chatId}/members`, {
+          method: "POST",
+          body: { user_id: userId },
+        });
+        await fetchGroupMembers(chatId);
+        setGroupAddUserQuery("");
+        setGroupAddUserResults([]);
+      } catch (error) {
+        setAppError(error instanceof Error ? error.message : "Unable to add member.");
+      }
+    },
+    [authorizedRequest, fetchGroupMembers],
+  );
+
+  const handleGroupRemoveMember = useCallback(
+    async (chatId: string, userId: string) => {
+      try {
+        await authorizedRequest(`/chats/${chatId}/members/${userId}`, { method: "DELETE" });
+        setGroupMembers((prev) => prev.filter((m) => m.user_id !== userId));
+      } catch (error) {
+        setAppError(error instanceof Error ? error.message : "Unable to remove member.");
+      }
+    },
+    [authorizedRequest],
+  );
+
+  const handleGroupAddUserSearch = useCallback(
+    async (query: string) => {
+      setGroupAddUserQuery(query);
+      if (!query.trim()) {
+        setGroupAddUserResults([]);
+        return;
+      }
+      try {
+        const users = await authorizedRequest<User[]>(`/users/search?q=${encodeURIComponent(query.trim())}`);
+        mergeUsers(users);
+        setGroupAddUserResults(currentUser ? users.filter((u) => u.id !== currentUser.id) : users);
+      } catch {
+        setGroupAddUserResults([]);
+      }
+    },
+    [authorizedRequest, currentUser, mergeUsers],
+  );
+
   const startCall = useCallback(
     async (callType: CallKind) => {
-      if (!selectedChat || selectedChat.type !== "direct" || !currentUser) {
+      if (!selectedChat || !currentUser) {
         return;
       }
       setCallError(null);
-      setBusyLabel(`Starting ${callType} call...`);
+      setIsCalling(true);
       try {
         cleanupCall();
         const connection = createPeerConnection();
@@ -1378,7 +1674,7 @@ export function MessengerApp() {
         cleanupCall();
         setCallError(error instanceof Error ? error.message : "Unable to start the call.");
       } finally {
-        setBusyLabel(null);
+        setIsCalling(false);
       }
     },
     [cleanupCall, createPeerConnection, currentUser, prepareLocalMedia, selectedChat, sendSocketEvent],
@@ -1389,7 +1685,7 @@ export function MessengerApp() {
       return;
     }
     setCallError(null);
-    setBusyLabel("Accepting call...");
+    setIsCalling(true);
     try {
       const connection = createPeerConnection();
       await prepareLocalMedia(incomingCall.callType, connection);
@@ -1418,7 +1714,7 @@ export function MessengerApp() {
       cleanupCall();
       setCallError(error instanceof Error ? error.message : "Unable to accept the call.");
     } finally {
-      setBusyLabel(null);
+      setIsCalling(false);
     }
   }, [cleanupCall, createPeerConnection, incomingCall, prepareLocalMedia, sendQueuedIceCandidates, sendSocketEvent]);
 
@@ -1456,6 +1752,7 @@ export function MessengerApp() {
   }, [activeCall?.callId, cleanupCall, sendSocketEvent]);
 
   const selectedChatTitle = selectedChat?.display_name ?? selectedChat?.name ?? "Direct chat";
+  const selectedChatAvatar = selectedChat?.display_avatar_url ?? selectedChat?.avatar_url;
   const selectedChatPeerStatus =
     selectedChat?.type === "direct"
       ? presenceByUserId[selectedChat.peer_id ?? ""] ?? selectedChat.peer_status
@@ -1574,8 +1871,8 @@ export function MessengerApp() {
               is calling in this direct chat.
             </p>
             <div className="row wrap">
-              <button className="primary-button" onClick={() => void acceptIncomingCall()} type="button">
-                Accept
+              <button className="primary-button" disabled={isCalling} onClick={() => void acceptIncomingCall()} type="button">
+                {isCalling ? "Connecting..." : "Accept"}
               </button>
               <button className="ghost-button" onClick={rejectIncomingCall} type="button">
                 Reject
@@ -1585,43 +1882,255 @@ export function MessengerApp() {
         </div>
       ) : null}
 
-      <main className="app-shell">
-        <aside className="panel sidebar">
-          <div className="panel-header">
-            <div className="brand">
-              <h1>NexTalk</h1>
-              <span className="muted">
-                {currentUser.display_name} · {socketConnected ? "live" : "offline"}
-              </span>
-            </div>
-            <button className="ghost-button" onClick={() => void handleLogout()} type="button">
-              Logout
-            </button>
-          </div>
-
-          <div className="panel-body stack">
-            {appError ? <div className="inline-error">{appError}</div> : null}
-            {callError ? <div className="inline-error">{callError}</div> : null}
-
-            <form className="stack" onSubmit={handleUserSearch}>
-              <div className="field-group">
-                <label htmlFor="chat-filter">Find people or filter chats</label>
-                <input
-                  className="text-input"
-                  id="chat-filter"
-                  onChange={(event) => setUserSearchQuery(event.target.value)}
-                  placeholder="Search users or filter chats"
-                  value={userSearchQuery}
-                />
+      {isNotificationsOpen ? (
+        <div className="sheet-overlay" onClick={() => setNotificationsOpen(false)} role="presentation">
+          <aside
+            aria-label="Notifications drawer"
+            className="panel notifications-drawer"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="drawer-header">
+              <div className="brand">
+                <h3>Notifications</h3>
+                <span className="muted">{unreadNotifications.length} unread</span>
               </div>
-              <button className="secondary-button" disabled={userSearchBusy} type="submit">
-                {userSearchBusy ? "Searching…" : "Search users"}
-              </button>
-            </form>
-
-            <div className="builder-card stack">
               <div className="row wrap">
-                <h3 style={{ margin: 0 }}>Create chat space</h3>
+                <button
+                  className="ghost-button"
+                  disabled={unreadNotifications.length === 0}
+                  onClick={() => void markAllNotificationsRead()}
+                  type="button"
+                >
+                  Mark all read
+                </button>
+                <button className="ghost-button" onClick={() => setNotificationsOpen(false)} type="button">
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="panel-body stack">
+              <div className="row wrap">
+                <span className={`pill ${socketConnected ? "online" : ""}`}>
+                  Backend: {API_BASE_URL.replace("/api/v1", "")}
+                </span>
+                <span className="pill">{notifications.length} total</span>
+              </div>
+              {notifications.length === 0 ? (
+                <div className="empty-state drawer-empty">No notifications yet.</div>
+              ) : (
+                <ul className="notification-list">
+                  {notifications.map((notification) => (
+                    <li className={`notification-card ${notification.is_read ? "" : "unread"}`} key={notification.id}>
+                      <div className="notification-card-inner">
+                        <div className="notification-meta">
+                          <strong>{formatNotificationTitle(notification.type)}</strong>
+                          <span className="muted">{formatDateLabel(notification.created_at)}</span>
+                        </div>
+                        <div className="helper-text">{getNotificationPreview(notification)}</div>
+                        <div className="row wrap" style={{ marginTop: "12px" }}>
+                          {notification.payload.chat_id ? (
+                            <button
+                              className="secondary-button"
+                              onClick={() => {
+                                setSelectedChatId(notification.payload.chat_id);
+                                setNotificationsOpen(false);
+                              }}
+                              type="button"
+                            >
+                              Open chat
+                            </button>
+                          ) : null}
+                          {!notification.is_read ? (
+                            <button
+                              className="ghost-button"
+                              onClick={() => void markNotificationRead(notification.id)}
+                              type="button"
+                            >
+                              Mark read
+                            </button>
+                          ) : (
+                            <span className="helper-text">Read</span>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
+      {/* Profile Modal */}
+      {isProfileOpen ? (
+        <div className="sheet-overlay" onClick={() => setProfileOpen(false)}>
+          <aside
+            className="panel notifications-drawer"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "600px" }}
+          >
+            <div className="panel-header">
+              <div className="brand">
+                <h2>Profile Settings</h2>
+                <span className="muted">@{currentUser.username}</span>
+              </div>
+              <button className="ghost-button" onClick={() => setProfileOpen(false)} type="button">
+                Close
+              </button>
+            </div>
+            <div className="panel-body stack">
+              <form className="stack" onSubmit={handleProfileSubmit}>
+                {profileAvatarPreviewUrl ?? currentUser?.display_avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    alt="Profile avatar"
+                    className="avatar-preview"
+                    src={profileAvatarPreviewUrl ?? currentUser?.display_avatar_url ?? ""}
+                  />
+                ) : null}
+                <div className="field-group">
+                  <label htmlFor="profile_display_name">Display Name</label>
+                  <input
+                    className="text-input"
+                    id="profile_display_name"
+                    onChange={(event) =>
+                      setProfileForm((current) => ({ ...current, display_name: event.target.value }))
+                    }
+                    placeholder="Display name"
+                    value={profileForm.display_name}
+                  />
+                </div>
+                <div className="field-group">
+                  <label htmlFor="profile_bio">Bio</label>
+                  <textarea
+                    className="text-area"
+                    id="profile_bio"
+                    onChange={(event) => setProfileForm((current) => ({ ...current, bio: event.target.value }))}
+                    placeholder="Bio"
+                    value={profileForm.bio}
+                  />
+                </div>
+                <div className="field-group">
+                  <label htmlFor="profile_custom_status">Custom Status</label>
+                  <input
+                    className="text-input"
+                    id="profile_custom_status"
+                    onChange={(event) =>
+                      setProfileForm((current) => ({ ...current, custom_status: event.target.value }))
+                    }
+                    placeholder="Custom status"
+                    value={profileForm.custom_status}
+                  />
+                </div>
+                <div className="field-group">
+                  <label htmlFor="profile_status">Status</label>
+                  <select
+                    className="text-input"
+                    id="profile_status"
+                    onChange={(event) =>
+                      setProfileForm((current) => ({ ...current, status: event.target.value as UserStatus }))
+                    }
+                    value={profileForm.status}
+                  >
+                    <option value="online">online</option>
+                    <option value="away">away</option>
+                    <option value="do_not_disturb">do_not_disturb</option>
+                    <option value="offline">offline</option>
+                  </select>
+                </div>
+                <div className="field-group">
+                  <label htmlFor="profile_avatar">Avatar</label>
+                  <input id="profile_avatar" onChange={(event) => setProfileAvatarFile(event.target.files?.[0] ?? null)} type="file" />
+                </div>
+                <div className="row wrap">
+                  <button className="primary-button" disabled={savingProfile} type="submit">
+                    {savingProfile ? "Saving..." : "Save Profile"}
+                  </button>
+                  <button className="ghost-button" onClick={() => void handleLogout()} type="button">
+                    Logout
+                  </button>
+                </div>
+              </form>
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
+      {/* New Chat Modal */}
+      {isNewChatOpen ? (
+        <div className="sheet-overlay" onClick={() => setNewChatOpen(false)}>
+          <aside
+            className="panel notifications-drawer"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "600px" }}
+          >
+            <div className="panel-header">
+              <div className="brand">
+                <h2>New Chat</h2>
+                <span className="muted">Start a conversation or create a group</span>
+              </div>
+              <button className="ghost-button" onClick={() => setNewChatOpen(false)} type="button">
+                Close
+              </button>
+            </div>
+            <div className="panel-body stack">
+              <form onSubmit={handleUserSearch}>
+                <div className="field-group">
+                  <label htmlFor="user_search">Search Users</label>
+                  <input
+                    className="text-input"
+                    id="user_search"
+                    onChange={(event) => setUserSearchQuery(event.target.value)}
+                    placeholder="Search for users..."
+                    value={userSearchQuery}
+                  />
+                </div>
+                <button className="secondary-button" disabled={userSearchBusy} type="submit">
+                  {userSearchBusy ? "Searching…" : "Search"}
+                </button>
+              </form>
+
+              {userSearchResults.length > 0 ? (
+                <div className="stack" style={{ marginTop: "20px" }}>
+                  <h3 style={{ margin: 0 }}>Search Results</h3>
+                  <ul className="notification-list">
+                    {userSearchResults.map((user) => {
+                      const isSelected = selectedGroupMemberIds.includes(user.id);
+                      return (
+                        <li className="notification-card" key={user.id}>
+                          <div className="notification-card-inner">
+                            <div className="chat-title-row">
+                              <div>
+                                <strong>{user.display_name}</strong>
+                                <div className="helper-text">@{user.username}</div>
+                              </div>
+                              <span className={getPresenceClass(user.status)} />
+                            </div>
+                            <div className="row wrap" style={{ marginTop: "12px" }}>
+                              <button className="primary-button" onClick={() => void createDirectChat(user)} type="button">
+                                Start Chat
+                              </button>
+                              <button
+                                className={isSelected ? "secondary-button" : "ghost-button"}
+                                onClick={() => toggleSelectedGroupMember(user.id)}
+                                type="button"
+                              >
+                                {isSelected ? "✓ Selected" : "Select for Group"}
+                              </button>
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+
+              <div className="divider" />
+
+              <div className="stack">
+                <h3 style={{ margin: 0 }}>Create Group</h3>
                 <div className="auth-tabs">
                   <button
                     className={`auth-tab ${groupForm.mode === "group" ? "active" : ""}`}
@@ -1633,129 +2142,209 @@ export function MessengerApp() {
                   <button
                     className={`auth-tab ${groupForm.mode === "supergroup" ? "active" : ""}`}
                     onClick={() => setGroupForm((current) => ({ ...current, mode: "supergroup" }))}
-                    type="button"
-                  >
+                    type="button">
                     Supergroup
                   </button>
                 </div>
-              </div>
-              <input
-                className="text-input"
-                onChange={(event) => setGroupForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder={groupForm.mode === "group" ? "Group name" : "Supergroup name"}
-                value={groupForm.name}
-              />
-              <textarea
-                className="text-area"
-                onChange={(event) => setGroupForm((current) => ({ ...current, description: event.target.value }))}
-                placeholder="Description"
-                value={groupForm.description}
-              />
-              {selectedGroupMemberIds.length > 0 ? (
-                <div className="helper-text">
-                  Selected members:{" "}
-                  {selectedGroupMemberIds
-                    .map((userId) => userDirectory[userId]?.display_name ?? userDirectory[userId]?.username ?? userId)
-                    .join(", ")}
+                {groupAvatarPreviewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img alt="Group avatar" className="avatar-preview" src={groupAvatarPreviewUrl} />
+                ) : null}
+                <div className="field-group">
+                  <label htmlFor="group_avatar">Group Avatar</label>
+                  <input id="group_avatar" onChange={(event) => setGroupAvatarFile(event.target.files?.[0] ?? null)} type="file" accept="image/*" />
                 </div>
-              ) : null}
-              <button className="primary-button" disabled={!!busyLabel} onClick={() => void createGroupChat()} type="button">
-                {busyLabel && busyLabel.startsWith("Creating") ? busyLabel : `Create ${groupForm.mode}`}
-              </button>
+                <input
+                  className="text-input"
+                  onChange={(event) => setGroupForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder={groupForm.mode === "group" ? "Group name" : "Supergroup name"}
+                  value={groupForm.name}
+                />
+                <textarea
+                  className="text-area"
+                  onChange={(event) => setGroupForm((current) => ({ ...current, description: event.target.value }))}
+                  placeholder="Description"
+                  value={groupForm.description}
+                />
+                {selectedGroupMemberIds.length > 0 ? (
+                  <div className="helper-text">
+                    Selected members:{" "}
+                    {selectedGroupMemberIds
+                      .map((userId) => userDirectory[userId]?.display_name ?? userDirectory[userId]?.username ?? userId)
+                      .join(", ")}
+                  </div>
+                ) : null}
+                <button className="primary-button" disabled={!!busyLabel} onClick={() => void createGroupChat()} type="button">
+                  {busyLabel && busyLabel.startsWith("Creating") ? busyLabel : `Create ${groupForm.mode}`}
+                </button>
+              </div>
             </div>
+          </aside>
+        </div>
+      ) : null}
 
-            {userSearchResults.length > 0 ? (
-              <ul className="search-results">
-                {userSearchResults.map((user) => {
-                  const isSelected = selectedGroupMemberIds.includes(user.id);
+      <main className="app-shell">
+        {/* LEFT SIDEBAR - Channels & Direct Messages */}
+        <aside className="panel vino-sidebar">
+          <div className="vino-brand">
+            <h1>NexTalk</h1>
+          </div>
+
+          {/* Channels Section */}
+          <div className="vino-section">
+            <div className="vino-section-header">
+              <span>Channels</span>
+            </div>
+            <ul className="vino-channel-list">
+              {filteredChats
+                .filter((chat) => chat.type !== "direct")
+                .map((chat) => {
+                  const title = chat.display_name ?? chat.name ?? "Channel";
                   return (
-                    <li className="search-card" key={user.id}>
-                      <div className="panel-body" style={{ padding: "12px 14px" }}>
-                        <div className="chat-title-row">
-                          <div>
-                            <strong>{user.display_name}</strong>
-                            <div className="helper-text">@{user.username}</div>
-                          </div>
-                          <span className={getPresenceClass(user.status)} />
-                        </div>
-                        <div className="row wrap" style={{ marginTop: "12px" }}>
-                          <button className="secondary-button" onClick={() => void createDirectChat(user)} type="button">
-                            Direct chat
-                          </button>
-                          <button
-                            className={isSelected ? "primary-button" : "ghost-button"}
-                            onClick={() => toggleSelectedGroupMember(user.id)}
-                            type="button"
-                          >
-                            {isSelected ? "Selected" : "Select"}
-                          </button>
-                        </div>
-                      </div>
+                    <li className={selectedChatId === chat.id ? "active" : ""} key={chat.id}>
+                      <button onClick={() => setSelectedChatId(chat.id)} type="button">
+                        <span className="channel-hash">#</span>
+                        <span className="channel-name">{title}</span>
+                        {chat.unread_count > 0 ? <span className="unread-badge">{chat.unread_count}</span> : null}
+                      </button>
                     </li>
                   );
                 })}
-              </ul>
-            ) : null}
-
-            <div className="divider" />
-
-            <ul className="chat-list">
-              {filteredChats.map((chat) => {
-                const title = chat.display_name ?? chat.name ?? "Direct chat";
-                const subtitle = chat.type === "direct" ? `@${chat.peer_username ?? "unknown"}` : chat.description;
-                const status =
-                  chat.type === "direct" ? presenceByUserId[chat.peer_id ?? ""] ?? chat.peer_status : null;
-                return (
-                  <li className={`chat-card ${chat.id === selectedChatId ? "active" : ""}`} key={chat.id}>
-                    <button onClick={() => setSelectedChatId(chat.id)} type="button">
-                      <div className="chat-title-row">
-                        <span className="chat-title">{title}</span>
-                        <div className="row">
-                          {status ? <span className={getPresenceClass(status)} /> : null}
-                          {chat.unread_count > 0 ? <span className="badge">{chat.unread_count}</span> : null}
-                        </div>
-                      </div>
-                      <div className="helper-text">{subtitle || chat.type}</div>
-                      <div className="helper-text">{formatDateLabel(chat.updated_at)}</div>
-                    </button>
-                  </li>
-                );
-              })}
+              <li>
+                <button onClick={() => setNewChatOpen(true)} type="button">
+                  <span className="channel-hash">+</span>
+                  <span className="channel-name">Add channel</span>
+                </button>
+              </li>
             </ul>
+          </div>
+
+          {/* Direct Messages Section */}
+          <div className="vino-section">
+            <div className="vino-section-header">
+              <span>Direct messages</span>
+            </div>
+            <ul className="vino-dm-list">
+              {filteredChats
+                .filter((chat) => chat.type === "direct")
+                .map((chat) => {
+                  const title = chat.display_name ?? chat.peer_username ?? "Unknown";
+                  const status =
+                    chat.type === "direct" ? presenceByUserId[chat.peer_id ?? ""] ?? chat.peer_status : null;
+                  return (
+                    <li className={selectedChatId === chat.id ? "active" : ""} key={chat.id}>
+                      <button onClick={() => setSelectedChatId(chat.id)} type="button">
+                        <Avatar label={title} size="sm" src={chat.display_avatar_url ?? chat.avatar_url} />
+                        <span className="dm-name">{title}</span>
+                        {status === "online" ? <span className="status-indicator online" /> : null}
+                        {chat.unread_count > 0 ? <span className="unread-badge">{chat.unread_count}</span> : null}
+                      </button>
+                    </li>
+                  );
+                })}
+            </ul>
+          </div>
+
+          {/* Bottom Actions */}
+          <div className="vino-sidebar-footer">
+            <button className="vino-footer-button" onClick={() => setProfileOpen(true)} type="button">
+              <Avatar label={currentUser.display_name} size="sm" src={profileAvatarPreviewUrl ?? currentUser.display_avatar_url} />
+              <div className="footer-user-info">
+                <span className="footer-username">{currentUser.display_name}</span>
+                <span className="footer-status">{currentUser.status}</span>
+              </div>
+            </button>
           </div>
         </aside>
 
+        {/* CENTER - Chat Panel */}
         <section className="panel chat-panel">
           {selectedChat ? (
             <>
               <div className="panel-header">
-                <div className="brand">
-                  <h2>{selectedChatTitle}</h2>
-                  <span className="muted">
-                    {selectedChat.type === "direct"
-                      ? `${selectedChatPeerStatus ?? "offline"} · ${selectedMessages.length} messages`
-                      : `${selectedChat.type} · ${selectedMessages.length} messages`}
-                  </span>
-                </div>
-                <div className="row wrap">
-                  <span className={`pill ${socketConnected ? "online" : ""}`}>
-                    {socketConnected ? "WS connected" : "WS disconnected"}
-                  </span>
+                <button className="chat-header-main" onClick={() => setDetailsOpen(!isDetailsOpen)} type="button" title="Chat info">
+                  <Avatar label={selectedChatTitle} size="sm" src={selectedChatAvatar} />
+                  <div className="brand">
+                    <h2>{selectedChatTitle}</h2>
+                    <span className="muted">
+                      {selectedChat.type === "direct"
+                        ? `${selectedChatPeerStatus ?? "offline"} · ${selectedMessages.length} messages`
+                        : `${selectedChat.type} · ${selectedMessages.length} messages`}
+                    </span>
+                  </div>
+                </button>
+                <div className="header-actions">
+                  <button className="icon-button" onClick={() => setNotificationsOpen(true)} type="button" title="Notifications">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                      <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                    </svg>
+                    {unreadNotifications.length > 0 ? (
+                      <span className="icon-badge">{unreadNotifications.length}</span>
+                    ) : null}
+                  </button>
+                  <button className="icon-button" onClick={() => setDetailsOpen(!isDetailsOpen)} type="button" title="Info">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="12" y1="16" x2="12" y2="12"></line>
+                      <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                  </button>
                   {selectedChat.type === "direct" ? (
                     <>
-                      <button className="secondary-button" onClick={() => void startCall("audio")} type="button">
-                        Audio call
+                      <button className="icon-button" disabled={isCalling} onClick={() => void startCall("audio")} type="button" title="Audio call">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                        </svg>
                       </button>
-                      <button className="secondary-button" onClick={() => void startCall("video")} type="button">
-                        Video call
+                      <button className="icon-button" disabled={isCalling} onClick={() => void startCall("video")} type="button" title="Video call">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                          <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                        </svg>
+                      </button>
+                      <button className="icon-button" onClick={() => setNewChatOpen(true)} type="button" title="Convert to group">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                          <circle cx="9" cy="7" r="4"></circle>
+                          <line x1="19" y1="8" x2="19" y2="14"></line>
+                          <line x1="22" y1="11" x2="16" y2="11"></line>
+                        </svg>
                       </button>
                     </>
-                  ) : null}
+                  ) : (
+                    <button className="icon-button" onClick={() => setNewChatOpen(true)} type="button" title="Add members">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="8.5" cy="7" r="4"></circle>
+                        <line x1="20" y1="8" x2="20" y2="14"></line>
+                        <line x1="23" y1="11" x2="17" y2="11"></line>
+                      </svg>
+                    </button>
+                  )}
                   {activeCall && activeCall.chatId === selectedChat.id ? (
                     <button className="ghost-button" onClick={endCurrentCall} type="button">
                       End call
                     </button>
                   ) : null}
+                  {/* Message search toggle */}
+                  <button
+                    className={`icon-button ${isChatSearchOpen ? "text-cyan-400" : ""}`}
+                    onClick={() => {
+                      setIsChatSearchOpen((v) => !v);
+                      if (isChatSearchOpen) {
+                        setChatSearchQuery("");
+                        setChatSearchResults([]);
+                      }
+                    }}
+                    title="Search messages"
+                    type="button"
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8"></circle>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                  </button>
                 </div>
               </div>
 
@@ -1783,24 +2372,7 @@ export function MessengerApp() {
                 </div>
               ) : null}
 
-              {activeCall && activeCall.chatId === selectedChat.id ? (
-                <div className="call-stage">
-                  <div className="call-card">
-                    <h3 style={{ margin: 0 }}>
-                      {activeCall.callType === "video" ? "Video" : "Audio"} call · {activeCall.status}
-                    </h3>
-                    <p className="muted">
-                      {activeCall.status === "ringing"
-                        ? "Waiting for the other side to accept."
-                        : "Realtime media is flowing through WebRTC."}
-                    </p>
-                    <div className="video-grid">
-                      <video autoPlay className="video-tile" muted playsInline ref={localVideoRef} />
-                      <video autoPlay className="video-tile" playsInline ref={remoteVideoRef} />
-                    </div>
-                  </div>
-                </div>
-              ) : null}
+              {activeCall && activeCall.chatId === selectedChat.id ? null : null}
 
               <div className="messages-scroll">
                 {loadingChatKey === selectedMessageKey ? (
@@ -1827,88 +2399,105 @@ export function MessengerApp() {
                               }
                             : undefined);
                     const isOwnMessage = message.sender_id === currentUser.id;
+                    const isGroup = selectedChat.type !== "direct";
+                    const isSystem = message.type === "system";
                     return (
-                      <article
-                        className={`message-bubble ${isOwnMessage ? "own" : ""} ${message.isPending ? "pending" : ""} ${
-                          message.type === "system" ? "system" : ""
-                        }`}
+                      <div
+                        className={`message-row ${isOwnMessage ? "own" : ""} ${isSystem ? "justify-center" : ""}`}
                         key={`${message.id}-${message.temp_id ?? "server"}`}
                       >
-                        <div className="message-meta">
-                          <strong>{isOwnMessage ? "You" : sender?.display_name ?? sender?.username ?? "Unknown"}</strong>
-                          <span className="muted">
-                            {formatTimestamp(message.created_at)}
-                            {message.topic_id ? " · topic" : ""}
-                            {message.is_edited ? " · edited" : ""}
-                            {message.isPending ? " · sending" : ""}
-                          </span>
-                        </div>
-                        {message.content ? <div className="message-content">{message.content}</div> : null}
-                        {message.attachments.length > 0 ? (
-                          <ul className="attachment-list">
-                            {message.attachments.map((attachment) => (
-                              <li className="attachment-card" key={attachment.id}>
-                                <div className="panel-body" style={{ padding: "12px 14px" }}>
-                                  <div className="attachment-meta">
-                                    <div>
-                                      <strong>{attachment.file_name}</strong>
-                                      <div className="helper-text">
-                                        {attachment.mime_type} · {formatFileSize(attachment.file_size)}
-                                      </div>
-                                    </div>
-                                    <button
-                                      className="ghost-button"
-                                      onClick={() => void downloadAttachment(attachment)}
-                                      type="button"
-                                    >
-                                      Download
-                                    </button>
-                                  </div>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
+                        {/* Show sender avatar for group chats on the left of others' messages */}
+                        {!isOwnMessage && isGroup && !isSystem ? (
+                          <div className="sender-avatar">
+                            <Avatar label={sender?.display_name ?? sender?.username ?? "?"} size="sm" src={sender?.display_avatar_url ?? sender?.avatar_url ?? null} />
+                          </div>
                         ) : null}
-                      </article>
+                        <article
+                          className={`message-bubble ${isOwnMessage ? "own" : ""} ${message.isPending ? "pending" : ""} ${isSystem ? "system" : ""}`}
+                        >
+                          {/* Show sender name in group chats */}
+                          {!isOwnMessage && isGroup && !isSystem ? (
+                            <div className="message-meta">
+                              <strong style={{ color: stringToColor(message.sender_id) }}>
+                                {sender?.display_name ?? sender?.username ?? "Unknown"}
+                              </strong>
+                              <span className="muted">
+                                {formatTimestamp(message.created_at)}
+                                {message.is_edited ? " · edited" : ""}
+                                {message.isPending ? " · sending" : ""}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="message-meta">
+                              <span className="muted">
+                                {formatTimestamp(message.created_at)}
+                                {message.topic_id ? " · topic" : ""}
+                                {message.is_edited ? " · edited" : ""}
+                                {message.isPending ? " · sending" : ""}
+                              </span>
+                            </div>
+                          )}
+                          {message.content ? <div className="message-content">{message.content}</div> : null}
+                          {message.attachments.length > 0 ? (
+                            <ul className="attachment-list">
+                              {message.attachments.map((attachment) => (
+                                <li className="attachment-card" key={attachment.id}>
+                                  <div style={{ padding: "10px 12px" }}>
+                                    <div className="attachment-meta">
+                                      <div style={{ minWidth: 0 }}>
+                                        <strong style={{ fontSize: "13px", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachment.file_name}</strong>
+                                        <div className="muted" style={{ fontSize: "11px" }}>
+                                          {attachment.mime_type} · {formatFileSize(attachment.file_size)}
+                                        </div>
+                                      </div>
+                                      <button
+                                        className="ghost-button"
+                                        onClick={() => void downloadAttachment(attachment)}
+                                        style={{ fontSize: "12px", padding: "4px 10px", flexShrink: 0 }}
+                                        type="button"
+                                      >
+                                        ↓
+                                      </button>
+                                    </div>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </article>
+                      </div>
                     );
                   })
                 )}
               </div>
 
-              <div className="message-search-results">
-                <form className="row wrap" onSubmit={handleMessageSearch}>
+              {isChatSearchOpen ? (
+              <div className="search-panel-container">
+                <form onSubmit={handleMessageSearch} style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
                   <input
+                    autoFocus
                     className="text-input"
                     onChange={(event) => setChatSearchQuery(event.target.value)}
-                    placeholder="Search messages in this chat"
+                    placeholder="Search messages in this chat…"
+                    style={{ flex: 1 }}
                     value={chatSearchQuery}
                   />
-                  <button className="secondary-button" disabled={messageSearchBusy} type="submit">
-                    {messageSearchBusy ? "Searching…" : "Search"}
+                  <button className="secondary-button" disabled={messageSearchBusy} type="submit" style={{ padding: "6px 12px" }}>
+                    {messageSearchBusy ? "…" : "Go"}
                   </button>
                   {chatSearchResults.length > 0 ? (
                     <button
                       className="ghost-button"
-                      onClick={() => {
-                        setChatSearchQuery("");
-                        setChatSearchResults([]);
-                      }}
+                      onClick={() => { setChatSearchQuery(""); setChatSearchResults([]); }}
                       type="button"
+                      style={{ padding: "6px 12px" }}
                     >
-                      Clear
+                      ✕
                     </button>
                   ) : null}
                 </form>
-                {typingByChat[selectedChat.id]?.length ? (
-                  <div className="helper-text">
-                    {typingByChat[selectedChat.id]
-                      .map((userId) => userDirectory[userId]?.display_name ?? userDirectory[userId]?.username ?? "Someone")
-                      .join(", ")}{" "}
-                    typing…
-                  </div>
-                ) : null}
                 {chatSearchResults.length > 0 ? (
-                  <ul className="search-results">
+                  <ul className="search-results" style={{ maxHeight: "160px", overflowY: "auto" }}>
                     {chatSearchResults.map((message) => (
                       <li className="search-card" key={`search-${message.id}`}>
                         <button onClick={() => setSelectedChatId(message.chat_id)} type="button">
@@ -1927,41 +2516,131 @@ export function MessengerApp() {
                   </ul>
                 ) : null}
               </div>
+              ) : null}
+
+              {typingByChat[selectedChat.id]?.length ? (
+                <div className="typing-indicator">
+                  {typingByChat[selectedChat.id]
+                    .map((userId) => userDirectory[userId]?.display_name ?? userDirectory[userId]?.username ?? "Someone")
+                    .join(", ")}{" "}
+                  is typing…
+                </div>
+              ) : null}
 
               <form className="composer" onSubmit={handleMessageSubmit}>
-                <textarea
-                  className="text-area"
-                  onBlur={stopTyping}
-                  onChange={handleComposerChange}
-                  placeholder="Write a message, mention someone with @username, or attach files"
-                  value={composerText}
-                />
-                <div className="row wrap">
-                  <label className="ghost-button" htmlFor="attachments">
-                    Attach files
-                  </label>
-                  <input hidden id="attachments" multiple onChange={handleFileSelection} type="file" />
+                <div className="composer-shell">
+                  <textarea
+                    className="text-area"
+                    onBlur={stopTyping}
+                    onChange={handleComposerChange}
+                    placeholder="Type a message…"
+                    style={{ minHeight: "60px", maxHeight: "150px", resize: "none" }}
+                    value={composerText}
+                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    {/* Attach files */}
+                    <label className="attach-btn" htmlFor="attachments" title="Attach files">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                      </svg>
+                    </label>
+                    <input hidden id="attachments" multiple onChange={handleFileSelection} type="file" />
+                    {/* Emoji picker trigger */}
+                    <div style={{ position: "relative" }}>
+                      <button
+                        className="attach-btn"
+                        onClick={() => setIsEmojiPickerOpen((v) => !v)}
+                        title="Emoji & Stickers"
+                        type="button"
+                        style={{ fontSize: "18px" }}
+                      >
+                        😊
+                      </button>
+                      {isEmojiPickerOpen ? (
+                        <div className="emoji-picker-wrapper">
+                          <div className="emoji-picker-panel">
+                            <div className="emoji-picker-tabs">
+                              {EMOJI_CATEGORIES.map((cat, i) => (
+                                <button
+                                  className={`emoji-tab-btn ${emojiPickerTab === i ? "active" : ""}`}
+                                  key={i}
+                                  onClick={() => setEmojiPickerTab(i)}
+                                  title={cat.label}
+                                  type="button"
+                                >
+                                  {cat.icon}
+                                </button>
+                              ))}
+                              <button
+                                className={`emoji-tab-btn ${emojiPickerTab === EMOJI_CATEGORIES.length ? "active" : ""}`}
+                                onClick={() => setEmojiPickerTab(EMOJI_CATEGORIES.length)}
+                                title="Stickers"
+                                type="button"
+                              >
+                                🎭
+                              </button>
+                            </div>
+                            {emojiPickerTab < EMOJI_CATEGORIES.length ? (
+                              <div className="emoji-grid">
+                                {EMOJI_CATEGORIES[emojiPickerTab]?.emojis.map((emoji, j) => (
+                                  <button
+                                    className="emoji-item"
+                                    key={j}
+                                    onClick={() => {
+                                      setComposerText((t) => t + emoji);
+                                      setIsEmojiPickerOpen(false);
+                                    }}
+                                    type="button"
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="sticker-grid">
+                                {STICKERS.map((sticker, j) => (
+                                  <button
+                                    className="sticker-item"
+                                    key={j}
+                                    onClick={() => {
+                                      setComposerText((t) => t + sticker + " ");
+                                      setIsEmojiPickerOpen(false);
+                                    }}
+                                    type="button"
+                                  >
+                                    {sticker}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div style={{ flex: 1 }} />
+                    <button className="primary-button" disabled={!socketConnected || sendingMessage} style={{ padding: "8px 18px" }} type="submit">
+                      {sendingMessage ? "Sending…" : !socketConnected ? "Connecting…" : "Send"}
+                    </button>
+                  </div>
                   {pendingFiles.length > 0 ? (
-                    <span className="helper-text">{pendingFiles.map((file) => file.name).join(", ")}</span>
-                  ) : (
-                    <span className="helper-text">Attachments use the backend presigned upload flow.</span>
-                  )}
-                </div>
-                <div className="row wrap">
-                  <button className="primary-button" disabled={!socketConnected || !!busyLabel} type="submit">
-                    {busyLabel ?? "Send message"}
-                  </button>
-                  <button
-                    className="ghost-button"
-                    onClick={() => {
-                      setComposerText("");
-                      setPendingFiles([]);
-                      stopTyping();
-                    }}
-                    type="button"
-                  >
-                    Clear
-                  </button>
+                    <div className="pending-files-bar">
+                      {pendingFiles.map((file, index) => (
+                        <div className="pending-file-chip" key={index}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                            <polyline points="13 2 13 9 20 9"></polyline>
+                          </svg>
+                          <span>{file.name}</span>
+                          <button
+                            className="pending-file-remove"
+                            onClick={() => setPendingFiles(pendingFiles.filter((_, i) => i !== index))}
+                            title="Remove"
+                            type="button"
+                          >✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </form>
             </>
@@ -1975,205 +2654,274 @@ export function MessengerApp() {
           )}
         </section>
 
-        <aside className="panel details-panel">
-          <div className="panel-header">
-            <div className="brand">
-              <h3>Profile, calls, topics, notifications</h3>
-              <span className="muted">{unreadNotifications.length} unread notifications</span>
-            </div>
+        {/* RIGHT SIDEBAR - Profile Panel (Always visible like Vino) */}
+        <aside className="panel vino-profile-panel">
+          <div className="vino-profile-header">
+            <h3>{selectedChat?.type === "direct" ? "Profile" : "Group Info"}</h3>
           </div>
-          <div className="panel-body stack">
-            <form className="builder-card stack" onSubmit={handleProfileSubmit}>
-              <h3 style={{ margin: 0 }}>Profile settings</h3>
-              {profileAvatarPreviewUrl ? (
-                <Image
-                  alt="Profile avatar"
-                  className="avatar-preview"
-                  height={96}
-                  src={profileAvatarPreviewUrl}
-                  unoptimized
-                  width={96}
-                />
-              ) : null}
-              <input
-                className="text-input"
-                onChange={(event) =>
-                  setProfileForm((current) => ({ ...current, display_name: event.target.value }))
-                }
-                placeholder="Display name"
-                value={profileForm.display_name}
-              />
-              <textarea
-                className="text-area"
-                onChange={(event) => setProfileForm((current) => ({ ...current, bio: event.target.value }))}
-                placeholder="Bio"
-                value={profileForm.bio}
-              />
-              <input
-                className="text-input"
-                onChange={(event) =>
-                  setProfileForm((current) => ({ ...current, custom_status: event.target.value }))
-                }
-                placeholder="Custom status"
-                value={profileForm.custom_status}
-              />
-              <select
-                className="text-input"
-                onChange={(event) =>
-                  setProfileForm((current) => ({ ...current, status: event.target.value as UserStatus }))
-                }
-                value={profileForm.status}
-              >
-                <option value="online">online</option>
-                <option value="away">away</option>
-                <option value="do_not_disturb">do_not_disturb</option>
-                <option value="offline">offline</option>
-              </select>
-              <input onChange={(event) => setProfileAvatarFile(event.target.files?.[0] ?? null)} type="file" />
-              <button className="primary-button" disabled={!!busyLabel} type="submit">
-                Save profile
-              </button>
-            </form>
+          <div className="vino-profile-body">
+            {selectedChat && selectedChat.type === "direct" ? (
+              <>
+                <div className="vino-profile-avatar-section">
+                  <Avatar label={selectedChatTitle} size="lg" src={selectedChatAvatar} />
+                  <h2 className="vino-profile-name">{selectedChatTitle}</h2>
+                  <div className="vino-profile-status">
+                    <span className={`status-indicator ${selectedChatPeerStatus === "online" ? "online" : ""}`} />
+                    <span className="status-text">{selectedChatPeerStatus ?? "Offline"}</span>
+                  </div>
+                  <div className="vino-profile-local-time">
+                    {new Date().toLocaleTimeString()} local time
+                  </div>
+                </div>
 
-            {selectedChat?.type === "supergroup" ? (
-              <div className="builder-card stack">
-                <h3 style={{ margin: 0 }}>Topics</h3>
-                <input
-                  className="text-input"
-                  onChange={(event) => setNewTopicName(event.target.value)}
-                  placeholder="New topic name"
-                  value={newTopicName}
-                />
-                <input
-                  className="text-input"
-                  onChange={(event) => setNewTopicDescription(event.target.value)}
-                  placeholder="Topic description"
-                  value={newTopicDescription}
-                />
-                <button className="secondary-button" onClick={() => void createTopic()} type="button">
-                  Create topic
-                </button>
-                <ul className="notification-list">
-                  {selectedTopics.map((topic) => (
-                    <li className="notification-card" key={topic.id}>
-                      <div className="panel-body" style={{ padding: "12px 14px" }}>
-                        <div className="chat-title-row">
-                          <strong>{topic.name}</strong>
-                          {topic.is_archived ? <span className="badge">archived</span> : null}
-                        </div>
-                        <div className="helper-text">{topic.description || "No description"}</div>
-                        <div className="row wrap" style={{ marginTop: "10px" }}>
-                          {!topic.is_archived ? (
-                            <>
-                              <button className="ghost-button" onClick={() => selectTopic(topic.id)} type="button">
-                                View
+                <div className="vino-profile-actions">
+                  <button className="vino-action-button" disabled={isCalling} onClick={() => void startCall("audio")} type="button">
+                    📞 Call
+                  </button>
+                  <button className="vino-action-button" disabled={isCalling} onClick={() => void startCall("video")} type="button">
+                    📹 Video
+                  </button>
+                </div>
+
+                <div className="vino-profile-section">
+                  <h4>Contact Information</h4>
+                  <div className="vino-profile-info-item">
+                    <span className="info-label">Email Address</span>
+                    <span className="info-value">{selectedChat.peer_username}@nextalk.com</span>
+                  </div>
+                </div>
+
+                <div className="vino-profile-section">
+                  <h4>About me</h4>
+                  <p className="vino-profile-bio">{userDirectory[selectedChat.peer_id ?? ""]?.bio || "No bio available"}</p>
+                </div>
+              </>
+            ) : selectedChat ? (
+              <>
+                {/* Group Avatar */}
+                <div className="vino-profile-avatar-section">
+                  <label className="group-avatar-upload-label" title="Change group photo">
+                    <Avatar label={selectedChatTitle} size="lg" src={selectedChatAvatar} />
+                    <span className="group-avatar-overlay">📷</span>
+                    <input
+                      accept="image/*"
+                      className="hidden-input"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void handleGroupAvatarUpload(selectedChat.id, file);
+                      }}
+                      type="file"
+                    />
+                  </label>
+                  <h2 className="vino-profile-name">{selectedChatTitle}</h2>
+                  <div className="vino-profile-status">
+                    <span className="status-text">{selectedChat.type} · {groupMembers.length} members</span>
+                  </div>
+                </div>
+
+                {/* Edit name & description */}
+                <div className="vino-profile-section">
+                  <h4>Group Settings</h4>
+                  <div className="group-edit-field">
+                    <label className="group-edit-label">Name</label>
+                    <input
+                      className="group-edit-input"
+                      onChange={(e) => setGroupEditName(e.target.value)}
+                      placeholder="Group name"
+                      type="text"
+                      value={groupEditName}
+                    />
+                  </div>
+                  <div className="group-edit-field">
+                    <label className="group-edit-label">Description</label>
+                    <textarea
+                      className="group-edit-input"
+                      onChange={(e) => setGroupEditDesc(e.target.value)}
+                      placeholder="Group description"
+                      rows={2}
+                      value={groupEditDesc}
+                    />
+                  </div>
+                  <button
+                    className="vino-action-button"
+                    disabled={groupEditBusy}
+                    onClick={() => void handleGroupSave(selectedChat.id)}
+                    type="button"
+                  >
+                    {groupEditBusy ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+
+                {/* Members list */}
+                <div className="vino-profile-section">
+                  <h4>Members</h4>
+                  {/* Add member search */}
+                  <div className="group-add-member-row">
+                    <input
+                      className="group-edit-input"
+                      onChange={(e) => void handleGroupAddUserSearch(e.target.value)}
+                      placeholder="Search users to add..."
+                      type="text"
+                      value={groupAddUserQuery}
+                    />
+                  </div>
+                  {groupAddUserResults.length > 0 && (
+                    <ul className="group-user-search-results">
+                      {groupAddUserResults.map((user) => (
+                        <li className="group-user-search-item" key={user.id}>
+                          <span className="user-search-name">{user.display_name ?? user.username}</span>
+                          <button
+                            className="group-add-member-btn"
+                            onClick={() => void handleGroupAddMember(selectedChat.id, user.id)}
+                            type="button"
+                          >
+                            + Add
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {/* Current members */}
+                  {groupMembersLoading ? (
+                    <p className="muted">Loading members...</p>
+                  ) : (
+                    <ul className="group-members-list">
+                      {groupMembers.map((member) => {
+                        const memberUser = userDirectory[member.user_id];
+                        return (
+                          <li className="group-member-item" key={member.user_id}>
+                            <Avatar
+                              label={memberUser?.display_name ?? memberUser?.username ?? member.user_id}
+                              size="sm"
+                              src={memberUser?.display_avatar_url ?? memberUser?.avatar_url}
+                            />
+                            <div className="group-member-info">
+                              <span className="group-member-name">
+                                {memberUser?.display_name ?? memberUser?.username ?? "Unknown"}
+                              </span>
+                              <span className="group-member-role muted">{member.role}</span>
+                            </div>
+                            {member.role !== "owner" && currentUser?.id !== member.user_id && (
+                              <button
+                                className="group-remove-member-btn"
+                                onClick={() => void handleGroupRemoveMember(selectedChat.id, member.user_id)}
+                                title="Remove member"
+                                type="button"
+                              >
+                                ✕
                               </button>
-                              <button className="ghost-button" onClick={() => void archiveTopic(topic.id)} type="button">
-                                Archive
-                              </button>
-                            </>
-                          ) : null}
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="vino-profile-empty">
+                <p>Select a chat to view profile</p>
               </div>
-            ) : null}
-
-            {selectedChat?.type === "direct" ? (
-              <div className="builder-card stack">
-                <h3 style={{ margin: 0 }}>Call history</h3>
-                {selectedCallHistory.length === 0 ? (
-                  <div className="helper-text">No calls yet.</div>
-                ) : (
-                  <ul className="notification-list">
-                    {selectedCallHistory.map((call) => (
-                      <li className="notification-card" key={call.id}>
-                        <div className="panel-body" style={{ padding: "12px 14px" }}>
-                          <div className="chat-title-row">
-                            <strong>
-                              {call.type} · {call.status}
-                            </strong>
-                            <span className="muted">{formatDateLabel(call.started_at)}</span>
-                          </div>
-                          <div className="helper-text">
-                            Duration: {call.duration_s ? `${call.duration_s}s` : "not established"}
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ) : null}
-
-            <div className="builder-card stack">
-              <div className="row wrap">
-                <h3 style={{ margin: 0 }}>Notifications</h3>
-                <button
-                  className="ghost-button"
-                  disabled={unreadNotifications.length === 0}
-                  onClick={() => void markAllNotificationsRead()}
-                  type="button"
-                >
-                  Mark all read
-                </button>
-              </div>
-              <div className="row wrap">
-                <span className={`pill ${socketConnected ? "online" : ""}`}>
-                  Backend: {API_BASE_URL.replace("/api/v1", "")}
-                </span>
-                <span className="pill">{notifications.length} total notifications</span>
-              </div>
-              {notifications.length === 0 ? (
-                <div className="helper-text">No notifications yet.</div>
-              ) : (
-                <ul className="notification-list">
-                  {notifications.map((notification) => (
-                    <li className="notification-card" key={notification.id}>
-                      <div className="panel-body" style={{ padding: "14px" }}>
-                        <div className="notification-meta">
-                          <strong>{notification.type.replaceAll("_", " ")}</strong>
-                          <span className="muted">{formatDateLabel(notification.created_at)}</span>
-                        </div>
-                        <div className="helper-text">
-                          {notification.payload.preview ??
-                            notification.payload.chat_id ??
-                            notification.payload.call_id ??
-                            "Notification payload received."}
-                        </div>
-                        <div className="row wrap" style={{ marginTop: "12px" }}>
-                          {notification.payload.chat_id ? (
-                            <button
-                              className="secondary-button"
-                              onClick={() => setSelectedChatId(notification.payload.chat_id)}
-                              type="button"
-                            >
-                              Open chat
-                            </button>
-                          ) : null}
-                          {!notification.is_read ? (
-                            <button
-                              className="ghost-button"
-                              onClick={() => void markNotificationRead(notification.id)}
-                              type="button"
-                            >
-                              Mark read
-                            </button>
-                          ) : (
-                            <span className="helper-text">Read</span>
-                          )}
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            )}
           </div>
         </aside>
       </main>
+
+      {/* Full-Page Call Interface */}
+      {activeCall ? (
+        <div className="call-fullscreen-overlay">
+          <div className="call-fullscreen-content">
+            {activeCall.callType === "video" ? (
+              <>
+                <video autoPlay className="call-remote-video" playsInline ref={remoteVideoRef} />
+                <video autoPlay className="call-local-video" muted playsInline ref={localVideoRef} />
+              </>
+            ) : (
+              <div className="call-audio-container">
+                <div className="call-avatar-large">
+                  <Avatar
+                    label={selectedChat?.display_name ?? selectedChat?.name ?? "Call"}
+                    size="lg"
+                    src={selectedChat?.display_avatar_url ?? selectedChat?.avatar_url}
+                  />
+                </div>
+                <h2 className="call-participant-name">
+                  {selectedChat?.display_name ?? selectedChat?.name ?? "Unknown"}
+                </h2>
+                <p className="call-status-text">
+                  {activeCall.status === "ringing" ? "Calling..." : "Connected"}
+                </p>
+              </div>
+            )}
+            
+            <div className="call-controls-bar">
+              <div className="call-info">
+                <span className="call-type-label">
+                  {activeCall.callType === "video" ? "Video Call" : "Audio Call"}
+                </span>
+                <span className="call-duration">
+                  {activeCall.status === "ringing" ? "Ringing..." : "Active"}
+                </span>
+              </div>
+              
+              <div className="call-action-buttons">
+                <button
+                  className="call-control-btn"
+                  onClick={() => {
+                    if (localStream) {
+                      const audioTrack = localStream.getAudioTracks()[0];
+                      if (audioTrack) {
+                        audioTrack.enabled = !audioTrack.enabled;
+                      }
+                    }
+                  }}
+                  title="Toggle microphone"
+                  type="button"
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                  </svg>
+                </button>
+                
+                {activeCall.callType === "video" ? (
+                  <button
+                    className="call-control-btn"
+                    onClick={() => {
+                      if (localStream) {
+                        const videoTrack = localStream.getVideoTracks()[0];
+                        if (videoTrack) {
+                          videoTrack.enabled = !videoTrack.enabled;
+                        }
+                      }
+                    }}
+                    title="Toggle camera"
+                    type="button"
+                  >
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                      <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                    </svg>
+                  </button>
+                ) : null}
+                
+                <button
+                  className="call-control-btn call-end-btn"
+                  onClick={endCurrentCall}
+                  title="End call"
+                  type="button"
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

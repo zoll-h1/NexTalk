@@ -6,6 +6,7 @@ export interface User {
   email: string;
   display_name: string;
   avatar_url: string | null;
+  display_avatar_url: string | null;
   bio: string | null;
   status: UserStatus;
   custom_status: string | null;
@@ -128,4 +129,15 @@ export interface WebSocketEvent<T = unknown> {
   type: string;
   payload: T;
   request_id?: string;
+}
+
+
+export interface ChatMember {
+  user_id: string;
+  chat_id: string;
+  role: "owner" | "admin" | "member";
+  joined_at: string;
+  username?: string;
+  display_name?: string;
+  avatar_url?: string;
 }

@@ -30,6 +30,7 @@ class UserRead(BaseModel):
     email: EmailStr
     display_name: str
     avatar_url: str | None
+    display_avatar_url: str | None = None
     bio: str | None
     status: str
     custom_status: str | None

@@ -7,9 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_user, get_db
 from app.db.models.user import User
 from app.schemas.user import UserRead, UserUpdateMe
+from app.services.storage_service import build_public_avatar_url
 from app.services.user_service import get_user_by_id, search_users, update_current_user
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+def _user_read(user: User) -> UserRead:
+    data = UserRead.model_validate(user)
+    data.display_avatar_url = build_public_avatar_url(user.avatar_url)
+    return data
 
 
 @router.get("/search", response_model=list[UserRead])
@@ -19,7 +26,7 @@ async def search_for_users(
     q: str = Query(min_length=1),
 ) -> list[UserRead]:
     users = await search_users(db, q)
-    return [UserRead.model_validate(user) for user in users]
+    return [_user_read(u) for u in users]
 
 
 @router.get("/{user_id}", response_model=UserRead)
@@ -29,7 +36,7 @@ async def get_user(
     _: Annotated[User, Depends(get_current_user)],
 ) -> UserRead:
     user = await get_user_by_id(db, user_id)
-    return UserRead.model_validate(user)
+    return _user_read(user)
 
 
 @router.patch("/me", response_model=UserRead)
@@ -39,4 +46,4 @@ async def update_me(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> UserRead:
     user = await update_current_user(db, current_user, payload)
-    return UserRead.model_validate(user)
+    return _user_read(user)

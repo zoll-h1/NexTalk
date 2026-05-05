@@ -43,6 +43,21 @@ def build_avatar_key(user_id: UUID, file_name: str) -> str:
     return f"avatars/{user_id}/{uuid4()}_{safe_name}"
 
 
+def build_public_avatar_url(s3_key: str | None) -> str | None:
+    """Return a browser-accessible URL for an avatar S3 key.
+
+    Avatars are stored under ``avatars/`` with a public-read bucket policy,
+    so they can be served directly via the nginx /storage/ proxy without
+    requiring a presigned URL.
+    """
+    if not s3_key:
+        return None
+    public_base = (settings.storage_public_url or "").rstrip("/")
+    if not public_base:
+        return None
+    return f"{public_base}/{settings.storage_bucket_name}/{s3_key}"
+
+
 def generate_presigned_upload_url(
     *,
     s3_key: str,
@@ -59,6 +74,8 @@ def generate_presigned_upload_url(
         },
         ExpiresIn=ttl,
     )
+    if settings.storage_public_url and settings.storage_endpoint_url:
+        url = url.replace(settings.storage_endpoint_url, settings.storage_public_url, 1)
     return url, ttl
 
 
@@ -71,4 +88,6 @@ def generate_presigned_download_url(
         Params={"Bucket": settings.storage_bucket_name, "Key": s3_key},
         ExpiresIn=ttl,
     )
+    if settings.storage_public_url and settings.storage_endpoint_url:
+        url = url.replace(settings.storage_endpoint_url, settings.storage_public_url, 1)
     return url, ttl

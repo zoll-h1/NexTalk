@@ -5,7 +5,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        enable_decoding=False,
+    )
 
     app_env: str = "development"
     secret_key: str = "development-secret-key-with-at-least-32-bytes"
@@ -28,6 +33,9 @@ class Settings(BaseSettings):
     storage_access_key: str = "minioadmin"
     storage_secret_key: str = "minioadmin"
     storage_presign_expire_seconds: int = 900
+    # Public URL prefix used to rewrite internal MinIO URLs for browser access.
+    # When set, internal endpoint (e.g. http://minio:9000) is replaced with this value.
+    storage_public_url: str = ""
 
     @field_validator("cors_origins", mode="before")
     @classmethod

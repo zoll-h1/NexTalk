@@ -45,7 +45,7 @@ services:
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
       RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-300}
       RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
-      POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://newtalk:change-me@postgres:5432/newtalk}
+      POSTGRES_URL: postgresql+asyncpg://newtalk:change-me@postgres:5432/newtalk
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
       STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-newtalk-media}
       STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
@@ -53,6 +53,7 @@ services:
       STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-minioadmin}
       STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-minioadmin}
       STORAGE_PRESIGN_EXPIRE_SECONDS: ${STORAGE_PRESIGN_EXPIRE_SECONDS:-900}
+      STORAGE_PUBLIC_URL: ${STORAGE_PUBLIC_URL:-http://localhost/storage}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 15s
@@ -64,8 +65,8 @@ services:
       context: .
       dockerfile: docker/frontend.Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost/api/v1}
-        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost/ws}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
         NEXT_PUBLIC_TURN_SERVER: ${NEXT_PUBLIC_TURN_SERVER:-}
         NEXT_PUBLIC_TURN_USER: ${NEXT_PUBLIC_TURN_USER:-}
         NEXT_PUBLIC_TURN_PASS: ${NEXT_PUBLIC_TURN_PASS:-}

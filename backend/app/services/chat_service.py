@@ -10,6 +10,7 @@ from app.db.models.chat import Chat, ChatMember
 from app.db.models.message import Message, MessageRead
 from app.db.models.topic import Topic
 from app.db.models.user import User
+from app.services.storage_service import build_public_avatar_url
 
 
 async def list_user_chats(session: AsyncSession, user_id: UUID) -> list[Chat]:
@@ -38,6 +39,12 @@ async def list_related_user_ids(session: AsyncSession, user_id: UUID) -> list[UU
 
 async def list_chat_member_ids(session: AsyncSession, chat_id: UUID) -> list[UUID]:
     stmt = select(ChatMember.user_id).where(ChatMember.chat_id == chat_id)
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def list_chat_members(session: AsyncSession, chat_id: UUID, requester_id: UUID) -> list[ChatMember]:
+    await get_chat_for_member(session, chat_id, requester_id)
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id)
     return list((await session.execute(stmt)).scalars().all())
 
 
@@ -75,7 +82,7 @@ async def count_chat_unread_messages(session: AsyncSession, chat_id: UUID, user_
 async def hydrate_chat_summary(session: AsyncSession, chat: Chat, viewer_id: UUID) -> Chat:
     chat.unread_count = await count_chat_unread_messages(session, chat.id, viewer_id)
     chat.display_name = chat.name
-    chat.display_avatar_url = chat.avatar_url
+    chat.display_avatar_url = build_public_avatar_url(chat.avatar_url)
     chat.peer_id = None
     chat.peer_username = None
     chat.peer_status = None
@@ -93,7 +100,7 @@ async def hydrate_chat_summary(session: AsyncSession, chat: Chat, viewer_id: UUI
         return chat
 
     chat.display_name = peer.display_name or peer.username
-    chat.display_avatar_url = peer.avatar_url
+    chat.display_avatar_url = build_public_avatar_url(peer.avatar_url)
     chat.peer_id = peer.id
     chat.peer_username = peer.username
     chat.peer_status = peer.status

@@ -9,8 +9,15 @@ from app.db.models.user import User
 from app.schemas.auth import AccessTokenResponse, AuthResponse, LoginRequest, RegisterRequest
 from app.schemas.user import UserRead
 from app.services.auth_service import login_user, logout_user, refresh_access_token, register_user
+from app.services.storage_service import build_public_avatar_url
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _user_read(user: User) -> UserRead:
+    data = UserRead.model_validate(user)
+    data.display_avatar_url = build_public_avatar_url(user.avatar_url)
+    return data
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
@@ -32,7 +39,7 @@ async def register(
 ) -> AuthResponse:
     user, access_token, refresh_token = await register_user(db, payload)
     _set_refresh_cookie(response, refresh_token)
-    return AuthResponse(access_token=access_token, user=UserRead.model_validate(user))
+    return AuthResponse(access_token=access_token, user=_user_read(user))
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -43,7 +50,7 @@ async def login(
 ) -> AuthResponse:
     user, access_token, refresh_token = await login_user(db, payload)
     _set_refresh_cookie(response, refresh_token)
-    return AuthResponse(access_token=access_token, user=UserRead.model_validate(user))
+    return AuthResponse(access_token=access_token, user=_user_read(user))
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
@@ -76,4 +83,4 @@ async def logout(
 
 @router.get("/me", response_model=UserRead)
 async def me(current_user: Annotated[User, Depends(get_current_user)]) -> UserRead:
-    return UserRead.model_validate(current_user)
+    return _user_read(current_user)
