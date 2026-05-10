@@ -36,7 +36,7 @@ npm install
 npm run dev
 ```
 
-## Production-style run with Docker
+## Production-style (run with Docker)
 
 1. Optional: copy the env examples if you want to override the compose defaults:
 
@@ -56,7 +56,7 @@ docker compose up --build
 
 4. Open:
 
-- App: `http://localhost`
+- App: `http://localhost`  <-----
 - Backend health: `http://localhost/health`
 
 ## Deployment notes
