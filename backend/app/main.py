@@ -15,6 +15,7 @@ from app.core.logging import dumps_log, get_logger, setup_logging
 from app.core.rate_limit import rate_limiter
 from app.core.security import decode_access_token
 from app.db.base import get_session_factory
+from app.db.models.user import User as UserModel
 from app.routers import auth, calls, chats, messages, notifications, uploads, users
 from app.services.chat_service import list_related_user_ids
 from app.services.storage_service import get_s3_client
@@ -24,13 +25,16 @@ from app.websocket import handle_ws_event, manager
 setup_logging(settings.log_level)
 request_logger = get_logger("nextalk.request")
 
-_AVATAR_POLICY = json.dumps({
+_PUBLIC_POLICY = json.dumps({
     "Version": "2012-10-17",
     "Statement": [{
         "Effect": "Allow",
         "Principal": {"AWS": ["*"]},
         "Action": ["s3:GetObject"],
-        "Resource": [f"arn:aws:s3:::{settings.storage_bucket_name}/avatars/*"],
+        "Resource": [
+            f"arn:aws:s3:::{settings.storage_bucket_name}/avatars/*",
+            f"arn:aws:s3:::{settings.storage_bucket_name}/attachments/*",
+        ],
     }],
 })
 
@@ -43,7 +47,7 @@ def _ensure_storage() -> None:
             client.head_bucket(Bucket=settings.storage_bucket_name)
         except Exception:
             client.create_bucket(Bucket=settings.storage_bucket_name)
-        client.put_bucket_policy(Bucket=settings.storage_bucket_name, Policy=_AVATAR_POLICY)
+        client.put_bucket_policy(Bucket=settings.storage_bucket_name, Policy=_PUBLIC_POLICY)
     except Exception as exc:  # noqa: BLE001
         request_logger.warning("Storage init warning: %s", exc)
 
@@ -140,6 +144,18 @@ def create_app() -> FastAPI:
             return
 
         user_uuid = UUID(str(user_id))
+
+        # Verify the user actually exists in the DB before accepting the connection
+        try:
+            async with app.state.get_ws_session_factory()() as session:
+                db_user = await session.get(UserModel, user_uuid)
+                if db_user is None:
+                    await websocket.close(code=4001, reason="User not found")
+                    return
+        except Exception:
+            await websocket.close(code=4001, reason="Auth error")
+            return
+
         await manager.connect(websocket, user_uuid)
         try:
             await _broadcast_presence(app, user_uuid, "online")
@@ -148,8 +164,15 @@ def create_app() -> FastAPI:
                 async with app.state.get_ws_session_factory()() as session:
                     await handle_ws_event(user_id=user_uuid, frame=frame, db=session)
         except WebSocketDisconnect:
+            pass
+        except Exception as exc:
+            request_logger.warning("WS error for user %s: %s", user_uuid, exc)
+        finally:
             await manager.disconnect(websocket, user_uuid)
-            await _broadcast_presence(app, user_uuid, "offline", update_last_seen=True)
+            try:
+                await _broadcast_presence(app, user_uuid, "offline", update_last_seen=True)
+            except Exception:
+                pass
 
     @app.get("/health", tags=["health"])
     async def health() -> dict[str, str]:
@@ -164,22 +187,25 @@ app = create_app()
 async def _broadcast_presence(
     app: FastAPI, user_id: UUID, status: str, update_last_seen: bool = False
 ) -> None:
-    async with app.state.get_ws_session_factory()() as session:
-        user = await set_user_presence(
-            session, user_id=user_id, status=status, update_last_seen=update_last_seen
-        )
-        related_user_ids = await list_related_user_ids(session, user_id)
+    try:
+        async with app.state.get_ws_session_factory()() as session:
+            user = await set_user_presence(
+                session, user_id=user_id, status=status, update_last_seen=update_last_seen
+            )
+            related_user_ids = await list_related_user_ids(session, user_id)
 
-    event = {
-        "type": "user:presence",
-        "payload": {
-            "user_id": str(user.id),
-            "status": user.status,
-            "last_seen": user.last_seen.isoformat() if user.last_seen else None,
-        },
-    }
-    for related_user_id in related_user_ids:
-        await manager.send_to_user(related_user_id, event)
+        event = {
+            "type": "user:presence",
+            "payload": {
+                "user_id": str(user.id),
+                "status": user.status,
+                "last_seen": user.last_seen.isoformat() if user.last_seen else None,
+            },
+        }
+        for related_user_id in related_user_ids:
+            await manager.send_to_user(related_user_id, event)
+    except Exception as exc:
+        request_logger.warning("Presence broadcast failed for %s: %s", user_id, exc)
 
 
 def _get_client_ip(request: Request) -> str:

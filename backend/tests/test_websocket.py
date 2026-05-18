@@ -1,14 +1,13 @@
-import asyncio
 import os
 import tempfile
 from collections.abc import AsyncGenerator
 
 import pytest
+import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
-    close_all_sessions,
     create_async_engine,
 )
 from starlette.websockets import WebSocketDisconnect
@@ -19,20 +18,22 @@ from app.main import app
 from app.websocket.manager import manager
 
 
-async def _setup_engine(engine) -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-
 @pytest.fixture()
 def ws_client():
     _, db_path = tempfile.mkstemp(suffix=".db")
+
+    # Create tables synchronously so no event-loop is bound to the engine before
+    # the TestClient starts its own portal.
+    sync_engine = sa.create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(sync_engine)
+    sync_engine.dispose()
+
     engine = create_async_engine(
         f"sqlite+aiosqlite:///{db_path}",
+        connect_args={"check_same_thread": False},
         future=True,
     )
     session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    asyncio.run(_setup_engine(engine))
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         async with session_factory() as session:
@@ -40,7 +41,8 @@ def ws_client():
 
     original_ws_provider = app.state.get_ws_session_factory
     app.dependency_overrides[get_db] = override_get_db
-    app.state.get_ws_session_factory = session_factory
+    # get_ws_session_factory must be a callable that RETURNS the async_sessionmaker
+    app.state.get_ws_session_factory = lambda: session_factory
     manager.reset()
 
     with TestClient(app) as client:
@@ -49,8 +51,7 @@ def ws_client():
     manager.reset()
     app.dependency_overrides.clear()
     app.state.get_ws_session_factory = original_ws_provider
-    asyncio.run(close_all_sessions())
-    asyncio.run(engine.dispose())
+    engine.sync_engine.dispose()
     os.unlink(db_path)
 
 

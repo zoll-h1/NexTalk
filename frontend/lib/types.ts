@@ -53,6 +53,7 @@ export interface Attachment {
   file_size: number;
   thumbnail_s3_key: string | null;
   created_at: string;
+  display_url?: string | null;
 }
 
 export interface Message {

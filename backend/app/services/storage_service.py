@@ -58,6 +58,15 @@ def build_public_avatar_url(s3_key: str | None) -> str | None:
     return f"{public_base}/{settings.storage_bucket_name}/{s3_key}"
 
 
+def build_public_attachment_url(s3_key: str | None) -> str | None:
+    """Return a browser-accessible URL for an attachment S3 key.
+
+    Attachments are stored under ``attachments/`` with a public-read bucket
+    policy (same as avatars), so they can be served via nginx /storage/.
+    """
+    return build_public_avatar_url(s3_key)
+
+
 def generate_presigned_upload_url(
     *,
     s3_key: str,

@@ -1,7 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.services.storage_service import build_public_attachment_url
 
 
 class AttachmentCreate(BaseModel):
@@ -22,6 +24,13 @@ class AttachmentRead(BaseModel):
     file_size: int
     thumbnail_s3_key: str | None
     created_at: datetime
+    display_url: str | None = None
+
+    @model_validator(mode="after")
+    def populate_display_url(self) -> "AttachmentRead":
+        if not self.display_url:
+            self.display_url = build_public_attachment_url(self.s3_key)
+        return self
 
 
 class MessageCreate(BaseModel):

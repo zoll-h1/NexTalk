@@ -231,8 +231,37 @@ const EMOJI_CATEGORIES = [
   { icon: "🐱", label: "Animals", emojis: ["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🐒","🦆","🐧","🐦","🦅","🦉","🦇","🐺","🐗","🐴","🦄","🐝","🐛","🦋","🐌","🐞","🐜","🪲","🦟","🦗","🪳","🕷️","🦂","🐢","🐍","🦎","🦖","🦕","🐙","🦑","🦐","🦞","🦀","🐡","🐠","🐟","🐬","🐳","🐋","🦈","🐊","🐅"] },
 ];
 
-const STICKERS = [
-  "🥳","🤩","😎","🤓","👻","💀","☠️","🤖","👾","🎃","🥸","🤡","👹","👺","👿","😈","🧙","🧝","🧛","🧟","🧞","🧜","🧚","👼","🤶","🎅","🧑‍🎄","🦸","🦹","🧑‍🚀","👨‍🔬","👩‍🎤","🧑‍🍳","👨‍💻","🧑‍🎨","💃","🕺","🏋️","🤸","🧘","🏄","🤽","🚴","🤺","⛷️","🏂","🪂","🏇","🧗","🤼","🤾","🏌️","🏊","🚣"
+const STICKER_PACKS = [
+  {
+    icon: "🥳",
+    label: "Party",
+    stickers: ["🥳","🎉","🎊","🎈","🥂","🍾","🎆","🎇","✨","🎁","🎀","🎗️","🏆","🎖️","🥇","🎭","🪅","🎠","🎡","🎢"],
+  },
+  {
+    icon: "😎",
+    label: "Cool",
+    stickers: ["😎","🤩","😏","🥸","🤓","😜","🤪","😝","🤑","🤠","😈","👿","💀","☠️","👻","🤖","👾","🎃","🤡","👹","👺"],
+  },
+  {
+    icon: "🐱",
+    label: "Animals",
+    stickers: ["🐶","🐱","🐻","🐼","🐨","🐯","🦁","🐮","🐸","🐵","🦊","🐺","🐗","🦄","🐙","🦋","🐢","🦎","🦆","🦉","🐧"],
+  },
+  {
+    icon: "❤️",
+    label: "Love",
+    stickers: ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","❤️‍🔥","💔","💕","💞","💓","💗","💖","💘","💝","🫶","💌","💋"],
+  },
+  {
+    icon: "🔥",
+    label: "Fire",
+    stickers: ["🔥","💥","⚡","🌊","🌪️","🌈","🌟","✨","💫","⭐","🌠","☄️","🌙","☀️","🌞","🌝","🌚","🌑","🌒","🌓","🌔"],
+  },
+  {
+    icon: "🚀",
+    label: "Space",
+    stickers: ["🚀","🛸","🌍","🌕","🌙","☀️","⭐","🌟","💫","✨","🌠","☄️","🔭","🛰️","👨‍🚀","👩‍🚀","🧑‍🚀","🪐","🌌","🔬","🧬"],
+  },
 ];
 
 export function MessengerApp() {
@@ -290,6 +319,7 @@ export function MessengerApp() {
   const [isChatSearchOpen, setIsChatSearchOpen] = useState(false);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const [emojiPickerTab, setEmojiPickerTab] = useState(0);
+  const [stickerPackTab, setStickerPackTab] = useState(0);
   const [messagesByKey, setMessagesByKey] = useState<Record<string, UiMessage[]>>({});
   const [topicsByChat, setTopicsByChat] = useState<Record<string, Topic[]>>({});
   const [selectedTopicIdByChat, setSelectedTopicIdByChat] = useState<Record<string, string | null>>({});
@@ -986,8 +1016,14 @@ export function MessengerApp() {
         console.log("[DEBUG] WebSocket closed", ev.code, ev.reason);
         setSocketConnected(false);
         if (socketRef.current === socket) socketRef.current = null;
-        // Don't reconnect on auth errors (4001)
-        if (destroyed || ev.code === 4001) return;
+        // Force logout on auth errors (4001) — stale token / user not found
+        if (ev.code === 4001) {
+          localStorage.removeItem("access_token");
+          localStorage.removeItem("refresh_token");
+          window.location.href = "/login";
+          return;
+        }
+        if (destroyed) return;
         const delay = Math.min(1000 * 2 ** socketReconnectAttemptsRef.current, 30000);
         socketReconnectAttemptsRef.current += 1;
         console.log(`[DEBUG] WebSocket reconnecting in ${delay}ms`);
@@ -1767,9 +1803,19 @@ export function MessengerApp() {
   if (bootstrapping) {
     return (
       <div className="auth-screen">
-        <div className="panel auth-card stack">
-          <h1>Bootstrapping NexTalk…</h1>
-          <p className="muted">Restoring your session and connecting to the backend.</p>
+        <div className="auth-orb auth-orb-primary" />
+        <div className="auth-orb auth-orb-secondary" />
+        <div className="auth-orb auth-orb-tertiary" />
+        <div className="panel glass-panel auth-card stack animate-scale-in">
+          <div className="auth-copy">
+            <span className="auth-kicker">Initializing workspace</span>
+            <h1 className="auth-title">NexTalk</h1>
+            <p className="auth-subtitle">Restoring your session and connecting to the backend.</p>
+          </div>
+          <div className="inline-status">
+            <span className="pill online">Realtime</span>
+            <span className="muted">Bootstrapping your conversations…</span>
+          </div>
         </div>
       </div>
     );
@@ -1778,26 +1824,32 @@ export function MessengerApp() {
   if (!currentUser) {
     return (
       <div className="auth-screen">
-        <form className="panel auth-card stack" onSubmit={handleAuthSubmit}>
-          <div className="stack">
-            <div className="auth-tabs">
-              <button
-                className={`auth-tab ${authMode === "login" ? "active" : ""}`}
-                onClick={() => setAuthMode("login")}
-                type="button"
-              >
-                Login
-              </button>
-              <button
-                className={`auth-tab ${authMode === "register" ? "active" : ""}`}
-                onClick={() => setAuthMode("register")}
-                type="button"
-              >
-                Register
-              </button>
-            </div>
-            <h1>NexTalk frontend</h1>
-            <p className="muted">The UI now targets the current backend and includes parity work in progress.</p>
+        <div className="auth-orb auth-orb-primary" />
+        <div className="auth-orb auth-orb-secondary" />
+        <div className="auth-orb auth-orb-tertiary" />
+        <form className="panel glass-panel auth-card stack animate-scale-in" onSubmit={handleAuthSubmit}>
+          <div className="auth-copy">
+            <span className="auth-kicker">{authMode === "login" ? "Welcome back" : "Create your account"}</span>
+            <h1 className="auth-title">NexTalk</h1>
+            <p className="auth-subtitle">
+              A realtime chat space wrapped in deep glass panels, presence, calls, and live conversations.
+            </p>
+          </div>
+          <div className="auth-tabs">
+            <button
+              className={`auth-tab ${authMode === "login" ? "active" : ""}`}
+              onClick={() => setAuthMode("login")}
+              type="button"
+            >
+              Login
+            </button>
+            <button
+              className={`auth-tab ${authMode === "register" ? "active" : ""}`}
+              onClick={() => setAuthMode("register")}
+              type="button"
+            >
+              Register
+            </button>
           </div>
           {authError ? <div className="inline-error">{authError}</div> : null}
           {authMode === "register" ? (
@@ -1850,7 +1902,7 @@ export function MessengerApp() {
               value={authForm.password}
             />
           </div>
-          <button className="primary-button" disabled={authBusy} type="submit">
+          <button className="primary-button w-full" disabled={authBusy} type="submit">
             {authBusy ? "Working…" : authMode === "login" ? "Login" : "Create account"}
           </button>
         </form>
@@ -1862,7 +1914,7 @@ export function MessengerApp() {
     <>
       {incomingCall ? (
         <div className="call-overlay">
-          <div className="panel call-modal stack">
+          <div className="panel call-modal glass-panel stack animate-scale-in">
             <h3>Incoming {incomingCall.callType} call</h3>
             <p className="muted">
               {userDirectory[incomingCall.initiatorId]?.display_name ??
@@ -1886,7 +1938,7 @@ export function MessengerApp() {
         <div className="sheet-overlay" onClick={() => setNotificationsOpen(false)} role="presentation">
           <aside
             aria-label="Notifications drawer"
-            className="panel notifications-drawer"
+            className="panel notifications-drawer glass-panel"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="drawer-header">
@@ -1966,7 +2018,7 @@ export function MessengerApp() {
       {isProfileOpen ? (
         <div className="sheet-overlay" onClick={() => setProfileOpen(false)}>
           <aside
-            className="panel notifications-drawer"
+            className="panel notifications-drawer glass-panel"
             onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: "600px" }}
           >
@@ -2061,7 +2113,7 @@ export function MessengerApp() {
       {isNewChatOpen ? (
         <div className="sheet-overlay" onClick={() => setNewChatOpen(false)}>
           <aside
-            className="panel notifications-drawer"
+            className="panel notifications-drawer glass-panel"
             onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: "600px" }}
           >
@@ -2185,9 +2237,18 @@ export function MessengerApp() {
 
       <main className="app-shell">
         {/* LEFT SIDEBAR - Channels & Direct Messages */}
-        <aside className="panel vino-sidebar">
+        <aside className="panel vino-sidebar glass-panel">
           <div className="vino-brand">
-            <h1>NexTalk</h1>
+            <div className="brand">
+              <span className="brand-kicker">Realtime messenger</span>
+              <div className="brand-title-row">
+                <div className="brand-mark">N</div>
+                <div className="brand-copy">
+                  <h1 className="brand-title-gradient">NexTalk</h1>
+                  <span className="muted">Deep space conversations</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Channels Section */}
@@ -2236,7 +2297,7 @@ export function MessengerApp() {
                       <button onClick={() => setSelectedChatId(chat.id)} type="button">
                         <Avatar label={title} size="sm" src={chat.display_avatar_url ?? chat.avatar_url} />
                         <span className="dm-name">{title}</span>
-                        {status === "online" ? <span className="status-indicator online" /> : null}
+                        {status ? <span className={getPresenceClass(status)} /> : null}
                         {chat.unread_count > 0 ? <span className="unread-badge">{chat.unread_count}</span> : null}
                       </button>
                     </li>
@@ -2251,21 +2312,27 @@ export function MessengerApp() {
               <Avatar label={currentUser.display_name} size="sm" src={profileAvatarPreviewUrl ?? currentUser.display_avatar_url} />
               <div className="footer-user-info">
                 <span className="footer-username">{currentUser.display_name}</span>
-                <span className="footer-status">{currentUser.status}</span>
+                <div className="footer-status-row">
+                  <span className={getPresenceClass(currentUser.status)} />
+                  <span className="footer-status">{currentUser.status}</span>
+                </div>
               </div>
             </button>
           </div>
         </aside>
 
         {/* CENTER - Chat Panel */}
-        <section className="panel chat-panel">
+        <section className="panel chat-panel glass-panel">
           {selectedChat ? (
             <>
-              <div className="panel-header">
+              <div className="panel-header chat-panel-header">
                 <button className="chat-header-main" onClick={() => setDetailsOpen(!isDetailsOpen)} type="button" title="Chat info">
                   <Avatar label={selectedChatTitle} size="sm" src={selectedChatAvatar} />
                   <div className="brand">
-                    <h2>{selectedChatTitle}</h2>
+                    <div className="chat-title-row">
+                      <h2>{selectedChatTitle}</h2>
+                      {selectedChat.type === "direct" ? <span className={getPresenceClass(selectedChatPeerStatus)} /> : null}
+                    </div>
                     <span className="muted">
                       {selectedChat.type === "direct"
                         ? `${selectedChatPeerStatus ?? "offline"} · ${selectedMessages.length} messages`
@@ -2403,7 +2470,7 @@ export function MessengerApp() {
                     const isSystem = message.type === "system";
                     return (
                       <div
-                        className={`message-row ${isOwnMessage ? "own" : ""} ${isSystem ? "justify-center" : ""}`}
+                        className={`message-row animate-fade-in-up ${isOwnMessage ? "own" : ""} ${isSystem ? "justify-center" : ""}`}
                         key={`${message.id}-${message.temp_id ?? "server"}`}
                       >
                         {/* Show sender avatar for group chats on the left of others' messages */}
@@ -2413,7 +2480,7 @@ export function MessengerApp() {
                           </div>
                         ) : null}
                         <article
-                          className={`message-bubble ${isOwnMessage ? "own" : ""} ${message.isPending ? "pending" : ""} ${isSystem ? "system" : ""}`}
+                          className={`message-bubble max-w-[60%] animate-fade-in ${isOwnMessage ? "own" : ""} ${message.isPending ? "pending" : ""} ${isSystem ? "system" : ""}`}
                         >
                           {/* Show sender name in group chats */}
                           {!isOwnMessage && isGroup && !isSystem ? (
@@ -2440,28 +2507,58 @@ export function MessengerApp() {
                           {message.content ? <div className="message-content">{message.content}</div> : null}
                           {message.attachments.length > 0 ? (
                             <ul className="attachment-list">
-                              {message.attachments.map((attachment) => (
-                                <li className="attachment-card" key={attachment.id}>
-                                  <div style={{ padding: "10px 12px" }}>
-                                    <div className="attachment-meta">
-                                      <div style={{ minWidth: 0 }}>
-                                        <strong style={{ fontSize: "13px", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachment.file_name}</strong>
-                                        <div className="muted" style={{ fontSize: "11px" }}>
-                                          {attachment.mime_type} · {formatFileSize(attachment.file_size)}
+                              {message.attachments.map((attachment) => {
+                                const isImage = attachment.mime_type.startsWith("image/");
+                                const isAudio = attachment.mime_type.startsWith("audio/");
+                                return (
+                                  <li className="attachment-card" key={attachment.id}>
+                                    {isImage && attachment.display_url ? (
+                                      <div className="attachment-image-wrapper">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                          alt={attachment.file_name}
+                                          className="attachment-image-preview"
+                                          src={attachment.display_url}
+                                        />
+                                        <div className="attachment-image-caption">
+                                          <span>{attachment.file_name}</span>
+                                          <button
+                                            className="ghost-button"
+                                            onClick={() => void downloadAttachment(attachment)}
+                                            style={{ fontSize: "11px", padding: "2px 8px", flexShrink: 0 }}
+                                            type="button"
+                                          >↓</button>
                                         </div>
                                       </div>
-                                      <button
-                                        className="ghost-button"
-                                        onClick={() => void downloadAttachment(attachment)}
-                                        style={{ fontSize: "12px", padding: "4px 10px", flexShrink: 0 }}
-                                        type="button"
-                                      >
-                                        ↓
-                                      </button>
-                                    </div>
-                                  </div>
-                                </li>
-                              ))}
+                                    ) : isAudio && attachment.display_url ? (
+                                      <div style={{ padding: "10px 12px" }}>
+                                        <div style={{ fontSize: "12px", marginBottom: "6px", opacity: 0.7 }}>{attachment.file_name}</div>
+                                        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                                        <audio className="attachment-audio-player" controls src={attachment.display_url} />
+                                      </div>
+                                    ) : (
+                                      <div style={{ padding: "10px 12px" }}>
+                                        <div className="attachment-meta">
+                                          <div style={{ minWidth: 0 }}>
+                                            <strong style={{ fontSize: "13px", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachment.file_name}</strong>
+                                            <div className="muted" style={{ fontSize: "11px" }}>
+                                              {attachment.mime_type} · {formatFileSize(attachment.file_size)}
+                                            </div>
+                                          </div>
+                                          <button
+                                            className="ghost-button"
+                                            onClick={() => void downloadAttachment(attachment)}
+                                            style={{ fontSize: "12px", padding: "4px 10px", flexShrink: 0 }}
+                                            type="button"
+                                          >
+                                            ↓
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </li>
+                                );
+                              })}
                             </ul>
                           ) : null}
                         </article>
@@ -2530,14 +2627,14 @@ export function MessengerApp() {
               <form className="composer" onSubmit={handleMessageSubmit}>
                 <div className="composer-shell">
                   <textarea
-                    className="text-area"
+                    className="text-area composer-textarea"
                     onBlur={stopTyping}
                     onChange={handleComposerChange}
                     placeholder="Type a message…"
                     style={{ minHeight: "60px", maxHeight: "150px", resize: "none" }}
                     value={composerText}
                   />
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div className="composer-toolbar">
                     {/* Attach files */}
                     <label className="attach-btn" htmlFor="attachments" title="Attach files">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2546,7 +2643,7 @@ export function MessengerApp() {
                     </label>
                     <input hidden id="attachments" multiple onChange={handleFileSelection} type="file" />
                     {/* Emoji picker trigger */}
-                    <div style={{ position: "relative" }}>
+                    <div className="composer-emoji-shell">
                       <button
                         className="attach-btn"
                         onClick={() => setIsEmojiPickerOpen((v) => !v)}
@@ -2597,28 +2694,43 @@ export function MessengerApp() {
                                 ))}
                               </div>
                             ) : (
-                              <div className="sticker-grid">
-                                {STICKERS.map((sticker, j) => (
-                                  <button
-                                    className="sticker-item"
-                                    key={j}
-                                    onClick={() => {
-                                      setComposerText((t) => t + sticker + " ");
-                                      setIsEmojiPickerOpen(false);
-                                    }}
-                                    type="button"
-                                  >
-                                    {sticker}
-                                  </button>
-                                ))}
+                              <div className="sticker-panel">
+                                <div className="sticker-pack-tabs">
+                                  {STICKER_PACKS.map((pack, i) => (
+                                    <button
+                                      className={`sticker-pack-tab ${stickerPackTab === i ? "active" : ""}`}
+                                      key={i}
+                                      onClick={() => setStickerPackTab(i)}
+                                      title={pack.label}
+                                      type="button"
+                                    >
+                                      {pack.icon}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="sticker-grid">
+                                  {STICKER_PACKS[stickerPackTab]?.stickers.map((sticker, j) => (
+                                    <button
+                                      className="sticker-item"
+                                      key={j}
+                                      onClick={() => {
+                                        setComposerText((t) => t + sticker + " ");
+                                        setIsEmojiPickerOpen(false);
+                                      }}
+                                      type="button"
+                                    >
+                                      {sticker}
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </div>
                         </div>
                       ) : null}
                     </div>
-                    <div style={{ flex: 1 }} />
-                    <button className="primary-button" disabled={!socketConnected || sendingMessage} style={{ padding: "8px 18px" }} type="submit">
+                    <div className="composer-spacer" />
+                    <button className="primary-button composer-send-button" disabled={!socketConnected || sendingMessage} type="submit">
                       {sendingMessage ? "Sending…" : !socketConnected ? "Connecting…" : "Send"}
                     </button>
                   </div>
@@ -2655,7 +2767,7 @@ export function MessengerApp() {
         </section>
 
         {/* RIGHT SIDEBAR - Profile Panel (Always visible like Vino) */}
-        <aside className="panel vino-profile-panel">
+        <aside className="panel vino-profile-panel glass-panel">
           <div className="vino-profile-header">
             <h3>{selectedChat?.type === "direct" ? "Profile" : "Group Info"}</h3>
           </div>
@@ -2666,8 +2778,8 @@ export function MessengerApp() {
                   <Avatar label={selectedChatTitle} size="lg" src={selectedChatAvatar} />
                   <h2 className="vino-profile-name">{selectedChatTitle}</h2>
                   <div className="vino-profile-status">
-                    <span className={`status-indicator ${selectedChatPeerStatus === "online" ? "online" : ""}`} />
-                    <span className="status-text">{selectedChatPeerStatus ?? "Offline"}</span>
+                    <span className={getPresenceClass(selectedChatPeerStatus)} />
+                    <span className="status-text">{selectedChatPeerStatus ?? "offline"}</span>
                   </div>
                   <div className="vino-profile-local-time">
                     {new Date().toLocaleTimeString()} local time
