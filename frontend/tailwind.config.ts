@@ -9,22 +9,41 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Dragon theme colors
+        dragon: {
+          black: "#0a0a0a",
+          charcoal: "#151515",
+          obsidian: "#1a1a1a",
+          ash: "#242424",
+          smoke: "#2d2d2d",
+        },
+        // Fire accents
+        fire: {
+          ember: "#ff4500",
+          flame: "#ff6b35",
+          glow: "#ffa500",
+          spark: "#ffcc00",
+        },
+        // Emerald/green flames
+        flame: {
+          green: "#00ff88",
+          jade: "#00d97e",
+          emerald: "#10b981",
+        },
+        // Glass effects
         glass: {
-          50: "rgba(255,255,255,0.04)",
-          100: "rgba(255,255,255,0.06)",
-          200: "rgba(255,255,255,0.08)",
-          300: "rgba(255,255,255,0.12)",
+          soft: "rgba(255,255,255,0.03)",
+          surface: "rgba(255,255,255,0.05)",
+          border: "rgba(255,255,255,0.08)",
+          hover: "rgba(255,255,255,0.08)",
         },
-        neon: {
-          purple: "#8b5cf6",
-          cyan: "#06b6d4",
-        },
-        space: {
-          DEFAULT: "#080818",
-          900: "#080818",
-          800: "#0f0a1e",
-          700: "#140e28",
-        },
+      },
+      boxShadow: {
+        'fire': '0 0 20px rgba(255, 107, 53, 0.3)',
+        'fire-lg': '0 0 40px rgba(255, 107, 53, 0.4)',
+        'green': '0 0 20px rgba(0, 255, 136, 0.3)',
+        'green-lg': '0 0 40px rgba(0, 255, 136, 0.4)',
+        'dragon': '0 8px 32px rgba(0, 0, 0, 0.6)',
       },
       animation: {
         float: "float 14s ease-in-out infinite",
@@ -36,6 +55,7 @@ const config: Config = {
         "fade-in": "fade-in 0.3s ease-out both",
         "scale-in": "scale-in 0.25s ease-out both",
         blob: "blob 12s ease-in-out infinite",
+        "flame-flicker": "flame-flicker 1.5s ease-in-out infinite",
       },
       keyframes: {
         float: {
@@ -60,11 +80,11 @@ const config: Config = {
         },
         "glow-pulse": {
           "0%, 100%": {
-            boxShadow: "0 0 0 rgba(6, 182, 212, 0), 0 0 10px rgba(139, 92, 246, 0.35)",
+            boxShadow: "0 0 20px rgba(255, 107, 53, 0.3)",
             opacity: "1",
           },
           "50%": {
-            boxShadow: "0 0 0 6px rgba(6, 182, 212, 0.12), 0 0 18px rgba(139, 92, 246, 0.75)",
+            boxShadow: "0 0 40px rgba(255, 107, 53, 0.6)",
             opacity: "0.9",
           },
         },
@@ -82,6 +102,15 @@ const config: Config = {
           "66%": { transform: "translate3d(-16px, 16px, 0) scale(0.96)" },
           "100%": { transform: "translate3d(0, 0, 0) scale(1)" },
         },
+        "flame-flicker": {
+          "0%, 100%": { opacity: "1", filter: "brightness(1)" },
+          "50%": { opacity: "0.85", filter: "brightness(1.2)" },
+        },
+      },
+      backgroundImage: {
+        'gradient-fire': 'linear-gradient(135deg, #ff6b35 0%, #ffa500 100%)',
+        'gradient-green': 'linear-gradient(135deg, #00ff88 0%, #10b981 100%)',
+        'gradient-dragon': 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%)',
       },
     },
   },

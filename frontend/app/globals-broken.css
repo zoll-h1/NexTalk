@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dragon Theme - Simplified & Reliable Version */
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  
+  body {
+    background: linear-gradient(135deg, #0a0a0a 0%, #151515 50%, #1a1a1a 100%);
+    color: white;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    overflow: hidden;
+  }
+  
+  ::selection {
+    background: rgba(255, 107, 53, 0.4);
+    color: white;
+  }
+  
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: #151515;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #ff6b35, #00ff88);
+    border-radius: 10px;
+  }
+}
+
+/* Chat Wallpapers */
+.wallpaper-dark .messages-scroll {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.wallpaper-fire .messages-scroll {
+  background: linear-gradient(135deg, rgba(255, 69, 0, 0.12), rgba(255, 165, 0, 0.12));
+}
+
+.wallpaper-green .messages-scroll {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(52, 211, 153, 0.12));
+}
+
+.wallpaper-space .messages-scroll {
+  background-image: 
+    radial-gradient(2px 2px at 20px 30px, #eee, transparent),
+    radial-gradient(2px 2px at 60px 70px, #eee, transparent),
+    radial-gradient(1px 1px at 50px 50px, #fff, transparent);
+  background-size: 200px 200px;
+  background-color: #0f0f0f;
+  opacity: 0.95;
+}
+
+.wallpaper-minimal .messages-scroll {
+  background: linear-gradient(to bottom right, #1a1a1a, #262626);
+  opacity: 0.95;
+}
