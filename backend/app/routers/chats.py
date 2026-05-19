@@ -1,7 +1,10 @@
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db
@@ -42,6 +45,10 @@ from app.websocket import events
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 
+class MuteRequest(BaseModel):
+    duration_minutes: int | None = None
+
+
 @router.get("", response_model=list[ChatRead])
 async def get_chats(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -74,6 +81,7 @@ async def create_group(
         payload.member_ids,
         description=payload.description,
         supergroup=False,
+        parent_id=payload.parent_id,
     )
     chat_data = ChatRead.model_validate(chat)
     member_ids = await list_chat_member_ids(db, chat.id)
@@ -97,6 +105,7 @@ async def create_supergroup(
         [],
         description=payload.description,
         supergroup=True,
+        parent_id=payload.parent_id,
     )
     return ChatRead.model_validate(chat)
 
@@ -156,6 +165,27 @@ async def add_member(
         {"type": events.CHAT_NEW, "payload": chat_data.model_dump(mode="json")},
     )
     return ChatMemberRead.model_validate(membership)
+
+
+@router.post("/{chat_id}/members/me/mute", status_code=200)
+async def mute_chat(
+    chat_id: UUID,
+    payload: MuteRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict:
+    from app.db.models.chat import ChatMember
+
+    muted_until = None
+    if payload.duration_minutes is not None and payload.duration_minutes > 0:
+        muted_until = datetime.now(timezone.utc) + timedelta(minutes=payload.duration_minutes)
+    await db.execute(
+        update(ChatMember)
+        .where(ChatMember.chat_id == chat_id, ChatMember.user_id == current_user.id)
+        .values(muted_until=muted_until)
+    )
+    await db.commit()
+    return {"muted_until": muted_until.isoformat() if muted_until else None}
 
 
 @router.delete("/{chat_id}/members/{user_id}", status_code=204)
@@ -233,3 +263,16 @@ async def archive_topic(
 ) -> TopicRead:
     topic = await update_topic(db, chat_id, topic_id, current_user.id, {"is_archived": True})
     return TopicRead.model_validate(topic)
+
+
+@router.post("/{chat_id}/read", status_code=204)
+async def mark_chat_read(
+    chat_id: UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    """Mark all unread messages in this chat as read for the current user."""
+    from app.services.message_service import mark_all_chat_messages_read
+    from app.services.chat_service import get_chat_for_member
+    await get_chat_for_member(db, chat_id, current_user.id)
+    await mark_all_chat_messages_read(db, chat_id, current_user.id)

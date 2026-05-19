@@ -22,7 +22,7 @@ async def get_chat_messages(
     chat_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
-    limit: int = Query(default=50, ge=1, le=100),
+    limit: int = Query(default=50, ge=1, le=200),
 ) -> list[MessageReadOut]:
     messages = await list_chat_messages(db, chat_id, current_user.id, limit=limit)
     return [MessageReadOut.model_validate(message) for message in messages]

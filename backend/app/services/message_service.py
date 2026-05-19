@@ -69,6 +69,18 @@ async def create_message(
     attachments: list[AttachmentCreate] | None = None,
 ) -> Message:
     await _ensure_chat_membership(session, chat_id, user_id)
+
+    chat_row = await session.get(Chat, chat_id)
+    if chat_row and chat_row.only_admins_can_write and chat_row.type in ("group", "supergroup"):
+        member_role = await session.execute(
+            select(ChatMember.role).where(
+                ChatMember.chat_id == chat_id, ChatMember.user_id == user_id
+            )
+        )
+        role = member_role.scalar_one_or_none()
+        if role not in ("owner", "admin"):
+            raise forbidden_exception("Only admins can write in this group")
+
     await _validate_message_context(session, chat_id, topic_id, reply_to_id)
     attachment_payloads = attachments or []
 
@@ -203,3 +215,34 @@ async def _validate_message_context(
         reply_message = await session.get(Message, reply_to_id)
         if reply_message is None or reply_message.chat_id != chat_id:
             raise bad_request_exception("Reply target does not belong to this chat")
+
+
+async def mark_all_chat_messages_read(session: AsyncSession, chat_id: UUID, user_id: UUID) -> int:
+    """Mark every unread message in a chat as read for this user. Returns number marked."""
+    from app.db.models.message import Message, MessageRead
+    from sqlalchemy import select, and_, func
+
+    # Find all message ids in this chat not yet read by user
+    subq = (
+        select(MessageRead.message_id)
+        .where(MessageRead.user_id == user_id)
+    )
+    stmt = (
+        select(Message.id)
+        .where(
+            Message.chat_id == chat_id,
+            Message.sender_id != user_id,
+            Message.is_deleted.is_(False),
+            Message.id.not_in(subq),
+        )
+    )
+    result = await session.execute(stmt)
+    message_ids = result.scalars().all()
+
+    for mid in message_ids:
+        session.add(MessageRead(message_id=mid, user_id=user_id))
+
+    if message_ids:
+        await session.commit()
+
+    return len(message_ids)

@@ -9,7 +9,19 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Dragon theme colors
+        // NexChat design tokens
+        nc: {
+          bg:           "var(--nc-bg, #0F0F13)",
+          sidebar:      "var(--nc-sidebar, #13131C)",
+          surface:      "var(--nc-surface, #1A1A24)",
+          surface2:     "var(--nc-surface2, #1E1E2E)",
+          primary:      "#6C63FF",
+          "primary-end":"#9B5DE5",
+          text:         "var(--nc-text, #F0F0FF)",
+          muted:        "var(--nc-muted, #8888AA)",
+          border:       "var(--nc-border, #2A2A3A)",
+        },
+        // Legacy dragon theme (kept for compatibility)
         dragon: {
           black: "#0a0a0a",
           charcoal: "#151515",
@@ -39,6 +51,9 @@ const config: Config = {
         },
       },
       boxShadow: {
+        'nc-glow':    '0 0 16px rgba(108, 99, 255, 0.4)',
+        'nc-glow-lg': '0 0 32px rgba(108, 99, 255, 0.3)',
+        'nc-hover':   '0 0 12px rgba(108, 99, 255, 0.5)',
         'fire': '0 0 20px rgba(255, 107, 53, 0.3)',
         'fire-lg': '0 0 40px rgba(255, 107, 53, 0.4)',
         'green': '0 0 20px rgba(0, 255, 136, 0.3)',
@@ -111,6 +126,9 @@ const config: Config = {
         'gradient-fire': 'linear-gradient(135deg, #ff6b35 0%, #ffa500 100%)',
         'gradient-green': 'linear-gradient(135deg, #00ff88 0%, #10b981 100%)',
         'gradient-dragon': 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%)',
+      },
+      fontFamily: {
+        mono: ["var(--font-mono)", "JetBrains Mono", "ui-monospace", "monospace"],
       },
     },
   },

@@ -12,17 +12,21 @@ class ChatCreateGroup(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     member_ids: list[UUID] = Field(default_factory=list)
     description: str | None = None
+    parent_id: UUID | None = None
 
 
 class ChatCreateSupergroup(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str | None = None
+    parent_id: UUID | None = None
 
 
 class ChatUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = None
+    parent_id: UUID | None = None
     avatar_url: str | None = None
+    only_admins_can_write: bool | None = None
 
 
 class ChatMemberRead(BaseModel):
@@ -31,6 +35,7 @@ class ChatMemberRead(BaseModel):
     user_id: UUID
     role: str
     joined_at: datetime
+    muted_until: datetime | None = None
 
 
 class ChatMemberAdd(BaseModel):
@@ -49,9 +54,11 @@ class ChatRead(BaseModel):
     name: str | None
     display_name: str | None = None
     description: str | None
+    parent_id: UUID | None = None
     avatar_url: str | None
     display_avatar_url: str | None = None
     invite_link: str | None
+    only_admins_can_write: bool = False
     created_by: UUID
     created_at: datetime
     updated_at: datetime

@@ -32,9 +32,11 @@ export interface Chat {
   name: string | null;
   display_name: string | null;
   description: string | null;
+  parent_id?: string | null;
   avatar_url: string | null;
   display_avatar_url: string | null;
   invite_link: string | null;
+  only_admins_can_write?: boolean;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -138,6 +140,7 @@ export interface ChatMember {
   chat_id: string;
   role: "owner" | "admin" | "member";
   joined_at: string;
+  muted_until?: string | null;
   username?: string;
   display_name?: string;
   avatar_url?: string;

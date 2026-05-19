@@ -153,13 +153,18 @@ async def create_group_chat(
     member_ids: list[UUID],
     description: str | None = None,
     supergroup: bool = False,
+    parent_id: UUID | None = None,
 ) -> Chat:
     chat_type = "supergroup" if supergroup else "group"
     await _ensure_users_exist(session, {owner_id, *member_ids})
+    parent_chat = await _validate_parent_chat(
+        session, parent_id=parent_id, child_type=chat_type, actor_id=owner_id
+    )
     chat = Chat(
         type=chat_type,
         name=name,
         description=description,
+        parent_id=parent_chat.id if parent_chat else None,
         created_by=owner_id,
         invite_link=secrets.token_urlsafe(16),
     )
@@ -247,6 +252,16 @@ async def update_chat(session: AsyncSession, chat_id: UUID, user_id: UUID, paylo
     role = await _get_member_role(session, chat_id, user_id)
     if role not in {"owner", "admin"}:
         raise forbidden_exception("Only owner/admin can update chats")
+
+    if "parent_id" in payload:
+        parent_chat = await _validate_parent_chat(
+            session,
+            parent_id=payload["parent_id"],
+            child_type=chat.type,
+            actor_id=user_id,
+            child_id=chat.id,
+        )
+        payload["parent_id"] = parent_chat.id if parent_chat else None
 
     for key, value in payload.items():
         setattr(chat, key, value)
@@ -403,6 +418,40 @@ async def _ensure_users_exist(session: AsyncSession, user_ids: set[UUID]) -> Non
     missing_ids = user_ids - existing_ids
     if missing_ids:
         raise not_found_exception("One or more users do not exist")
+
+
+async def _validate_parent_chat(
+    session: AsyncSession,
+    parent_id: UUID | None,
+    child_type: str,
+    actor_id: UUID,
+    child_id: UUID | None = None,
+) -> Chat | None:
+    if parent_id is None:
+        return None
+    if child_type != "supergroup":
+        raise bad_request_exception("Only supergroups can be linked to a parent group")
+    if child_id is not None and parent_id == child_id:
+        raise bad_request_exception("A chat cannot be its own parent")
+
+    parent_chat = await session.get(Chat, parent_id)
+    if parent_chat is None:
+        raise not_found_exception("Parent group not found")
+    if parent_chat.type != "group":
+        raise bad_request_exception("Parent chat must be a group")
+
+    existing_membership = (
+        await session.execute(
+            select(ChatMember).where(
+                and_(ChatMember.chat_id == parent_chat.id, ChatMember.user_id == actor_id)
+            )
+        )
+    ).scalar_one_or_none()
+    if existing_membership is None:
+        session.add(ChatMember(chat_id=parent_chat.id, user_id=actor_id, role="member"))
+        await session.flush()
+
+    return parent_chat
 
 
 async def _get_member_role(session: AsyncSession, chat_id: UUID, user_id: UUID) -> str | None:

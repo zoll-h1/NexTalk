@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, PrimaryKeyConstraint, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, PrimaryKeyConstraint, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,8 +15,12 @@ class Chat(Base):
     type: Mapped[str] = mapped_column(String(16), nullable=False)
     name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chats.id", ondelete="SET NULL"), nullable=True
+    )
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     invite_link: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    only_admins_can_write: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
     created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
